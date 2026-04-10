@@ -1,0 +1,132 @@
+<%include file="HEADER.tmpl"/>
+<script type='text/javascript' src="${docroot}/static/js/spiderfoot.geoip.js"></script>
+
+<div class="sf-page-shell">
+<div class="sf-page-header">
+  <div>
+    <h2 class="sf-page-title">Varreduras em Massa GeoIP &nbsp;<img id="geoip-loader" src="${docroot}/static/img/loader.gif" style="display:none"></h2>
+    <div class="sf-page-subtitle">Filtre, reduza e só então expanda networks para disparar scans com mais precisão e menos volume desnecessário.</div>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  Primeiro selecione os arquivos de referência GeoLite e aplique filtros para reduzir o universo de dados. Só depois escolha o arquivo de blocos para expandir as networks e disparar as varreduras.
+</div>
+
+<div class="panel panel-default">
+  <div class="panel-heading"><b>Arquivos GeoLite de Referência</b></div>
+  <div class="panel-body">
+    <div class="row">
+      <div class="col-sm-6">
+        <label for="geoip-asn-blocks-file">ASN Blocks IPv4</label>
+        <select id="geoip-asn-blocks-file" class="form-control"></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top: 10px;">
+      <div class="col-sm-6">
+        <label for="geoip-city-locations-file">City Locations</label>
+        <select id="geoip-city-locations-file" class="form-control"></select>
+      </div>
+      <div class="col-sm-6">
+        <label for="geoip-country-locations-file">Country Locations</label>
+        <select id="geoip-country-locations-file" class="form-control"></select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel panel-default">
+  <div class="panel-heading"><b>Filtros e Pré-visualização</b></div>
+  <div class="panel-body">
+    <div class="alert alert-warning" style="margin-bottom: 15px;">
+      Para evitar travamentos com arquivos grandes, informe pelo menos um filtro antes de expandir as networks.
+    </div>
+    <div class="row">
+      <div class="col-sm-2">
+        <label for="geoip-network-filter">Rede</label>
+        <input id="geoip-network-filter" class="form-control" type="text" placeholder="45.190">
+      </div>
+      <div class="col-sm-2">
+        <label for="geoip-asn-filter">ASN</label>
+        <input id="geoip-asn-filter" class="form-control" type="text" placeholder="269656">
+      </div>
+      <div class="col-sm-3">
+        <label for="geoip-org-filter">Organização</label>
+        <input id="geoip-org-filter" class="form-control" type="text" placeholder="Telecom">
+      </div>
+      <div class="col-sm-2">
+        <label for="geoip-city-filter">Cidade</label>
+        <input id="geoip-city-filter" class="form-control" type="text" placeholder="Concórdia">
+      </div>
+      <div class="col-sm-2">
+        <label for="geoip-country-filter">País</label>
+        <input id="geoip-country-filter" class="form-control" type="text" placeholder="BR">
+      </div>
+      <div class="col-sm-1">
+        <label for="geoip-limit">Limite</label>
+        <input id="geoip-limit" class="form-control" type="number" value="1000" min="1">
+      </div>
+    </div>
+    <div class="row" style="margin-top: 15px;">
+      <div class="col-sm-6">
+        <label for="geoip-city-blocks-file">Arquivo de blocos para expandir</label>
+        <select id="geoip-city-blocks-file" class="form-control"></select>
+      </div>
+      <div class="col-sm-6">
+        <label>&nbsp;</label>
+        <div>
+          <button id="geoip-preview-button" class="btn btn-primary">Expandir networks filtradas</button>
+          <span id="geoip-preview-summary" style="margin-left: 10px;"></span>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="margin-top: 15px;">
+      <div class="col-sm-12">
+        <small class="text-muted">Fluxo recomendado: selecione City Locations, Country Locations e ASN, aplique filtros e só então escolha o arquivo City Blocks para expandir.</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="geoip-table-container"></div>
+
+<div class="panel panel-default">
+  <div class="panel-heading"><b>Disparo de Varreduras</b></div>
+  <div class="panel-body">
+    <div class="row">
+      <div class="col-sm-3">
+        <label for="geoip-usecase">Use case</label>
+        <select id="geoip-usecase" class="form-control">
+          <option value="all">All</option>
+          <option value="Footprint">Footprint</option>
+          <option value="Investigate">Investigate</option>
+          <option value="Passive">Passive</option>
+        </select>
+      </div>
+      <div class="col-sm-2">
+        <label for="geoip-max-ips-per-network">IPs por rede</label>
+        <input id="geoip-max-ips-per-network" class="form-control" type="number" value="0" min="0">
+      </div>
+      <div class="col-sm-2">
+        <label for="geoip-max-scans">Máx. scans</label>
+        <input id="geoip-max-scans" class="form-control" type="number" value="0" min="0">
+      </div>
+      <div class="col-sm-5">
+        <label for="geoip-name-template">Template do Scan Name</label>
+        <input id="geoip-name-template" class="form-control" type="text" value="{ip} - AS{asn} - {org}">
+      </div>
+    </div>
+    <div class="checkbox" style="margin-top: 10px;">
+      <label><input id="geoip-usable-hosts-only" type="checkbox" checked> Ignorar endereço de rede e broadcast em IPv4</label>
+    </div>
+    <div style="margin-top: 10px;">
+      <button id="geoip-select-all-button" class="btn btn-default">Selecionar todos</button>
+      <button id="geoip-select-none-button" class="btn btn-default">Limpar seleção</button>
+      <button id="geoip-start-button" class="btn btn-danger">Criar scans para selecionados</button>
+    </div>
+<div id="geoip-start-summary" style="margin-top: 10px;"></div>
+  </div>
+</div>
+
+</div>
+<%include file="FOOTER.tmpl"/>

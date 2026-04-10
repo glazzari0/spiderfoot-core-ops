@@ -1,0 +1,188 @@
+<%include file="HEADER.tmpl"/>
+<script src="${docroot}/static/js/spiderfoot.newscan.js"></script>
+<div class="sf-page-shell" style='padding-top: 20px'>
+<div class="sf-page-header">
+    <div>
+        <h2 class="sf-page-title">Nova Varredura</h2>
+        <div class="sf-page-subtitle">Configure o alvo e escolha a estratégia de coleta com menos ruído e mais clareza operacional.</div>
+    </div>
+</div>
+<form class="form" action='${docroot}/startscan' method='POST'>
+<div class='col-sm-3' style='padding: 0'>
+    <label for="scanname">Nome da Varredura</label>
+    <div class="input-group" style='padding-bottom: 10px'>
+        <input class='form-control' type="text" id="scanname" name="scanname" value="${scanname}" placeholder="O nome desta varredura.">
+    </div>
+    <label for="scantarget">Alvo da Varredura</label>
+    <div class="input-group">
+        <input class='form-control' type="text" value="${scantarget}" id="scantarget" name="scantarget" placeholder="O alvo da sua varredura.">
+    </div>
+</div>
+<div class='col-sm-9' style='font-size: 12px; padding: 0; padding-left: 10px'>
+    <div class='panel panel-default' style='background-color: #f7f7f7'>
+        <div class='panel-body' style='padding: 0; margin: 10px'>
+            <div class='row' style='padding-bottom: 5px'>
+                <div class='col-sm-12'>
+                <i class='glyphicon glyphicon-question-sign'></i>&nbsp;&nbsp;Seu alvo pode ser um dos itens abaixo. O SpiderFoot detectará automaticamente o tipo do alvo com base no formato informado:
+                </div>
+            </div>
+            <div class='row'>
+                <div class='col-sm-6'>
+                    <b>Nome de domínio</b>: ex. <i>example.com</i><br><b>Endereço IPv4</b>: ex. <i>1.2.3.4</i><br><b>Endereço IPv6</b>: ex. <i>2606:4700:4700::1111</i><br><b>Hostname/Subdomínio</b>: ex. <i>abc.example.com</i><br><b>Sub-rede</b>: ex. <i>1.2.3.0/24</i><br><b>Endereço Bitcoin</b>: ex. 1HesYJSP1QqcyPEjnQ9vzBL1wujruNGe7R
+                </div>
+                <div class='col-sm-6'><b>Endereço de e-mail</b>: ex. <i>bob@example.com</i><br><b>Número de telefone</b>: ex. <i>+12345678901</i> (formato E.164)<br><b>Nome de pessoa</b>: ex. <i>&quot;John Smith&quot;</i> (deve estar entre aspas)<br><b>Nome de usuário</b>: ex. <i>&quot;jsmith2000&quot;</i> (deve estar entre aspas)<br><b>ASN de rede</b>: ex. <i>1234</i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <div class="control-group sf-table-shell">
+        <ul class='nav nav-tabs'>
+        <li id='usetab' class="active"><a href='#'>Por Caso de Uso</a></li>
+        <li id='presettab'><a href='#'>Por Preset</a></li>
+        <li id='typetab'><a href='#'>Por Dados Necessários</a></li>
+        <li id='moduletab'><a href='#'>Por Módulo</a></li>
+        <div class='btn-group-sm pull-right' role="group" id='selectors' style='display: none'>
+        <button id="btn-select-all" type="button" class="btn btn-info">Selecionar Todos</button>&nbsp;&nbsp;
+        <button id="btn-deselect-all" type="button" class="btn btn-info">Limpar Seleção</button>
+        </div>
+        </ul>
+        <table class="table table-striped table-condensed" id="usetable">
+            <tr><td style='width: 50px'><input type=radio name='usecase' value='all' id="usecase_all" checked></td><td>Todos</td><td><b>Obter o máximo possível de informações sobre o alvo.</b><br><br>Todos os módulos do SpiderFoot serão habilitados (mais lento), mas a maior quantidade possível de informações sobre o alvo será coletada e analisada.<br><br></td></tr>
+            <tr><td style='width: 50px'><input type=radio name='usecase' value='Footprint' id="usecase_footprint"></td><td>Footprint</td><td><b>Entender quais informações esse alvo expõe na Internet.</b><br><br>Permite compreender o perímetro de rede do alvo, identidades associadas e outras informações obtidas por meio de muito crawling e uso de buscadores.
+             <br><br></td></tr>
+            <tr><td style='width: 50px'><input type=radio name='usecase' value='Investigate' id="usecase_investigate"></td><td>Investigar</td><td><b>Melhor opção quando você suspeita que o alvo seja malicioso, mas precisa de mais contexto.</b><br><br>Será feito um footprinting básico, além de consultas a blacklists e outras fontes que possam indicar comportamento malicioso do alvo.
+            <br><br></td></tr>
+            <tr><td style='width: 50px'><input type=radio name='usecase' value='Passive' id="usecase_passive"></td><td>Passivo</td><td><b>Quando você não quer que o alvo sequer suspeite que está sendo investigado.</b><br><br>O máximo de informações será coletado sem interagir diretamente com o alvo ou seus afiliados, portanto apenas módulos passivos serão habilitados.
+
+        </td></tr>
+        </table>
+        <table class="table table-striped table-condensed" id="presettable" style="display: none">
+            % for preset in presets:
+            <tr>
+                <td style='width: 50px'>
+                    <input type=radio name='preset' value='${preset["id"]}' id="preset_${preset['id']}">
+                </td>
+                <td style='width: 220px'><b>${preset["name"]}</b><br><small>${preset["module_count"]} módulos</small></td>
+                <td>
+                    <b>Quando usar:</b> ${preset["best_for"]}<br><br>
+                    <b>O que ele faz:</b> ${preset["description"]}<br><br>
+                    <b>Atenção:</b> ${preset["caution"]}<br><br>
+                    <b>Compatível com:</b> ${', '.join(preset["target_type_labels"])}
+                </td>
+            </tr>
+            % endfor
+        </table>
+
+        <table class="table table-striped table-condensed" id="moduletable" style="display: none">
+            <%
+            modlist = dict()
+            for item in modules:
+                modlist[modules[item]['name']] = item
+            %>
+            % for it in sorted(modlist, key=lambda v: v.upper()):
+                <% item = modlist[it] %>
+                <% keylist = dict((k, v) for k, v in modules[item]['opts'].items() if not k.startswith('_')) %>
+                <% keyicon = "" %>
+                % if len(keylist) > 0:
+                    <% apikeylist = dict((k, v) for k, v in modules[item]['opts'].items() if k.find("api_key") >= 0) %>
+                    <%
+                    if len(apikeylist) > 0:
+                        keyicon = "&nbsp;&nbsp;<i class=\"glyphicon glyphicon-lock\" rel='tooltip' title='Precisa de chave de API'></i>"
+                    %>
+                % endif
+
+                % if item != "sfp__stor_db" and item != "sfp__stor_stdout":
+                    <% disabled = not module_status.get(item, {}).get('available', True) %>
+                    <% reason = module_status.get(item, {}).get('reason', '') %>
+                    <tr class="${'text-muted' if disabled else ''}">
+                        <td><input type=checkbox id="module_${item}" ${'disabled' if disabled else ''} ${'' if disabled else 'checked'}></td>
+                        <td>${modules[item]['name']}${keyicon}&nbsp;<a href="${docroot}/opts?module=${item}#${item}" target="_blank" rel="noopener noreferrer" title="Abrir configuração do módulo"><i class="glyphicon glyphicon-cog"></i></a>
+                        % if disabled:
+                            <br><small>${reason}</small>
+                        % endif
+                        </td>
+                        <td>${modules[item]['descr']}</td>
+                    </tr>
+                % endif
+            % endfor
+        </table>
+        <table class="table table-striped table-condensed" id="typetable" style="display: none">
+            <% count = 0 %>
+            % for item in sorted(types):
+                <% disabled = not type_status.get(item[1], {}).get('available', True) %>
+                % if count % 2 == 0:
+                    <tr>
+                % endif
+                <td><input type=checkbox id="type_${item[1]}" ${'disabled' if disabled else ''} ${'' if disabled else 'checked'}></td>
+                <% producer_links = type_status.get(item[1], {}).get('producers', []) %>
+                <% producer_count = len(producer_links) %>
+                <td class="${'text-muted' if disabled else ''}">${item[0]}
+                % if producer_links:
+                    <%
+                        producer_items = []
+                        for producer in producer_links:
+                            producer_label = producer["name"]
+                            if not producer.get("available", True):
+                                producer_label += " (indisponível)"
+                            producer_items.append(
+                                f"<li><a href='{docroot}/opts?module={producer['id']}#{producer['id']}' target='_blank' rel='noopener noreferrer'>{producer_label}</a></li>"
+                            )
+                        producer_popover = "<ul style='padding-left:18px; margin-bottom:0;'>" + "".join(producer_items) + "</ul>"
+                    %>
+                    &nbsp;<small>${producer_count} módulo${'' if producer_count == 1 else 's'}</small>
+                    &nbsp;<a href="#"
+                             title="Módulos relacionados"
+                             data-toggle="popover"
+                             data-trigger="focus"
+                             data-html="true"
+                             data-placement="auto"
+                             data-content="${producer_popover | h}"><i class="glyphicon glyphicon-cog"></i></a>
+                % endif
+                % if disabled:
+                    <br><small>${type_status.get(item[1], {}).get('reason', '')}</small>
+                % endif
+                </td>
+                % if not count % 2 == 0:
+                    </tr>
+                % endif
+                <% count = count + 1 %>
+            % endfor
+        </table>
+    </div>
+    <div class="control-group">
+        <div class="controls">
+            <input type=hidden id='modulelist' name='modulelist' value=''>
+            <input type=hidden id='typelist' name='typelist' value=''>
+            <div class="alert alert-info" style="margin-bottom: 15px;">
+                Use <b>Por Preset</b> se você quiser uma seleção segura e pronta de módulos para um objetivo específico. Isso reduz erro operacional e evita ligar módulos inadequados para o alvo.
+            </div>
+            <div class="alert alert-warning" style="margin-bottom: 15px;">
+                Módulos e tipos de dados que dependem de API obrigatória sem configuração aparecem desabilitados automaticamente. A verificação é feita usando a configuração atualmente carregada pelo SpiderFoot.
+            </div>
+            <button id="btn-run-scan" class="btn btn-danger">Executar Varredura Agora</button>
+        </div>
+    </div>
+</form>
+</div>
+
+<script type='text/javascript'>
+  if ("${selectedpreset}" != "") {
+          switchTab("preset");
+          $("#preset_${selectedpreset}").attr("checked", true);
+  }
+  if ("${selectedmods}" != "") {
+          switchTab("module");
+
+          $("input[id^=module_]").each(function(id, obj) {
+              if ("${selectedmods}".indexOf(obj.id.replace("module_", "")) >= 0) {
+                  $("#" + obj.id).attr("checked", true);
+              } else {
+                  $("#" + obj.id).attr("checked", false);
+              }
+          });
+  }
+</script>
+</div>
+<%include file="FOOTER.tmpl"/>

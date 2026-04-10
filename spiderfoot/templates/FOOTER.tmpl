@@ -1,0 +1,25 @@
+    </div>
+    <footer class="navbar-default navbar-fixed-bottom">
+      <div class="container-fluid text-center footer">
+        <%
+        messages = [
+            "<i class='glyphicon glyphicon-flash'></i>&nbsp;&nbsp;<a target=_new href='https://www.spiderfoot.net/hx'>Crie uma conta gratuita no SpiderFoot HX em segundos e experimente.</a>",
+            "<i class='glyphicon glyphicon-flash'></i>&nbsp;&nbsp;<a target=_new href='https://www.spiderfoot.net/open-source-vs-hx'>Entenda a diferença entre o SpiderFoot e o SpiderFoot HX.</a>",
+            "<i class='glyphicon glyphicon-heart'></i>&nbsp;&nbsp;<a target=_new href='https://twitter.com/intent/follow?original_referer=https%3A%2F%2Fpublish.twitter.com%2F&ref_src=twsrc%5Etfw%7Ctwcamp%5Ebuttonembed%7Ctwterm%5Efollow%7Ctwgr%5Espiderfoot&screen_name=spiderfoot'>Siga o SpiderFoot no Twitter para receber as últimas novidades.</a>",
+            "<i class='glyphicon glyphicon-education'></i>&nbsp;&nbsp;<a target=_new href='https://www.spiderfoot.net/documentation'>Consulte a documentação do SpiderFoot para aproveitar melhor a ferramenta.</a>",
+            "<i class='glyphicon glyphicon-heart'></i>&nbsp;&nbsp;<a target=_new href='https://discord.gg/vyvztrG'>Entre na comunidade SpiderFoot no Discord.</a>",
+            "<i class='glyphicon glyphicon-console'></i>&nbsp;&nbsp;<a target=_new href='https://asciinema.org/~spiderfoot'>Você sabia que o SpiderFoot também tem CLI? Veja os tutoriais no asciinema.</a>",
+            "<i class='glyphicon glyphicon-flash'></i>&nbsp;&nbsp;<a target=_new href='https://www.spiderfoot.net/hx'>Quer mais recursos de automação OSINT? Conheça o SpiderFoot HX.</a>",
+            "<i class='glyphicon glyphicon-cloud'></i>&nbsp;&nbsp;<a target=_new href='https://www.spiderfoot.net/hx'>Não quer administrar sua própria instalação do SpiderFoot? Conheça o SpiderFoot HX.</a>",
+            "<i class='glyphicon glyphicon-film'></i>&nbsp;&nbsp;<a target=_new href='https://www.youtube.com/channel/UCujtHhVLNeiJA_3F-lghD-w'>Veja nosso canal no YouTube para ver o SpiderFoot HX em ação.</a>"
+        ]
+
+        import random
+        message = messages[random.randint(0, len(messages)-1)]
+        %>
+        <span>${message}</span>
+      </div>
+    </footer>
+
+    </body>
+</html>

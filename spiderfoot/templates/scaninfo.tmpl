@@ -1,0 +1,1389 @@
+## -*- coding: utf-8 -*-
+<%include file="HEADER.tmpl"/>
+<%
+  if status == "FINISHED":
+    statusy = "alert-success"
+  elif status.startswith("ABORT"):
+    statusy = "alert-warning"
+  elif status == "CREATED" or status == "RUNNING" or status == "STARTED" or status == "STARTING" or status == "INITIALIZING":
+    statusy = "alert-info"
+  elif status == "ERROR-FAILED":
+    statusy = "alert-danger"
+  else:
+    statusy = "alert-info"
+  end
+%>
+<div class="sf-page-shell">
+  <div class="sf-page-header">
+    <div>
+      <h2 class="sf-page-title">${name}&nbsp;<span id='scanstatusbadge' class='badge ${statusy}'>${status}</span>&nbsp;<img id="loader" src="${docroot}/static/img/loader.gif"></h2>
+      <div class="sf-page-subtitle">Acompanhe o progresso, navegue pelos achados e revise a configuração desta varredura com menos ruído visual.</div>
+    </div>
+  </div>
+  <div class="btn-toolbar sf-toolbar" role="toolbar" style='padding-bottom: 10px'>
+   <div class="btn-group">
+      <a id='btn-status' class="btn btn-default" onClick='scanSummaryView("${id}")'><i class='glyphicon glyphicon-eye-open'></i>&nbsp;Resumo</a>
+      <a id='btn-correlations' class="btn btn-default" onClick='browseCorrelations("${id}")'><i class='glyphicon glyphicon-exclamation-sign'></i>&nbsp;Correlações</a>
+      <a id='btn-browse' class="btn btn-default" onClick='browseEventList("${id}")'><i class='glyphicon glyphicon-th-list'></i>&nbsp;Navegar</a>
+      <a id='btn-graph' class="btn btn-default" onClick='graphEvents("${id}")'><i class='glyphicon glyphicon-asterisk'></i>&nbsp;Grafo</a>
+      <a id='btn-info' class="btn btn-default" onClick='viewScanConfig("${id}")'><i class='glyphicon glyphicon-cog'></i>&nbsp;Configurações da Varredura</a>
+      <a id='btn-log' class="btn btn-default" onClick='viewScanLog("${id}")'><i class='glyphicon glyphicon-book'></i>&nbsp;Log</a>
+    </div>
+    <div class='btn-group pull-right'>
+        <div id='btn-search' class='input-group pull-right'>
+          <input class='form-control' id='searchvalue' type='text' placeholder='Pesquisar...' data-toggle='popover' data-html='true' data-animation='true' data-title='Uso' data-content="Informe uma expressão regular entre '/', por exemplo <i>/searchregex/</i>, ou uma busca com curinga, por exemplo <i>*texto*</i>, ou um valor exato, por exemplo <i>texto</i>.<br /><br /><b>Observação</b>: a busca respeita o escopo atual exibido.">
+            <div class='input-group-btn' style='width: 0px'> <!-- Chrome fix -->
+              <button class='btn btn-primary' id='searchbutton' type='button' onClick="$('#btn-search').popover('toggle');searchDirector('${id}')">
+                <i class='glyphicon glyphicon-search glyphicon glyphicon-white'></i>
+              </button>
+            </div>
+        </div>
+    </div>
+        <div class="btn-group pull-right" role="group">
+            <button id='btn-refresh' rel="tooltip" title="Atualizar" class="btn btn-success btn-default" onClick='refresh()'><i class='glyphicon glyphicon-refresh glyphicon glyphicon-white'></i></button>
+            <button id='btn-download-logs' rel="tooltip" data-title="Baixar Logs da Varredura" class="btn btn-default download-button" onClick='downloadLogs("${id}")'><i class='glyphicon glyphicon-download-alt glyphicon glyphicon-white'></i></button>
+            <a id='btn-export' rel="tooltip" data-title="Exportar Dados" class="btn btn-default dropdown-toggle download-button" data-toggle="dropdown"><i class='glyphicon glyphicon-download-alt glyphicon glyphicon-white'></i></a>
+            <ul class="dropdown-menu">
+              <li><a class='link' onClick='exportEventData("${id}", currentType, "csv")'>CSV</a></li>
+              <li><a class='link' onClick='exportEventData("${id}", currentType, "excel")'>Excel</a></li>
+            </ul>
+        </div> 
+        <div id='customtabview' role="group" class="btn-group pull-right">
+         <a id='btn-fullview' rel="tooltip" data-title="Visualização Completa" class="btn btn-default active" onClick='browseUpdate("full")'><i class='glyphicon glyphicon-th glyphicon glyphicon-white'></i></a>
+         <a id='btn-uniqueview' rel="tooltip" data-title="Visualização Única" class="btn btn-default" onClick='browseUpdate("unique")'><i class='glyphicon glyphicon-align-justify glyphicon glyphicon-white'></i></a>
+         <a id='btn-vizview' rel="tooltip" data-title="Visualizar" class="btn btn-default dropdown-toggle" data-toggle="dropdown"><i class='glyphicon glyphicon-picture glyphicon glyphicon-white'></i></a>
+         <ul class="dropdown-menu">
+            <li><a class='link' onClick='browseUpdate("viz-bubble-data")'>Bolhas (Elemento de Dados)</a></li>
+            <li><a class='link' onClick='browseUpdate("viz-bubble-source")'>Bolhas (Elemento de Origem)</a></li>
+            <li><a class='link' onClick='browseUpdate("viz-dendro")'>Caminho de Descoberta</a></li>
+         </ul>
+        </div>
+        <div id='customvizview' class="btn-group pull-right">
+         <a id='btn-random' rel="tooltip" data-title="Layout Aleatório" class="btn btn-default active" onClick='vizUpdate("random")'><b>R</b></a>
+         <a id='btn-forceatlas' rel="tooltip" data-title="Layout por Força" class="btn btn-default" onClick='vizUpdate("force")'><b>F</b></a>
+         <a id='btn-saveimage' rel="tooltip" data-title="Salvar Imagem" class="btn btn-default dropdown-toggle" onClick='vizUpdate("download")'><i class='glyphicon glyphicon-picture glyphicon glyphicon-white'></i></a>
+        </div>
+        <div id='customgraphlabels' class="btn-group pull-right" style="display: none;">
+         <a id='btn-labels-relevant' rel="tooltip" data-title="Mostrar rótulos relevantes" class="btn btn-default active" onClick='graphLabelModeUpdate("relevant")'>Rótulos: Auto</a>
+         <a id='btn-labels-all' rel="tooltip" data-title="Mostrar todos os rótulos" class="btn btn-default" onClick='graphLabelModeUpdate("all")'>Todos</a>
+         <a id='btn-labels-off' rel="tooltip" data-title="Ocultar rótulos" class="btn btn-default" onClick='graphLabelModeUpdate("off")'>Ocultar</a>
+        </div>
+        <div id='modifyactions' role="group" class="btn-group pull-right">
+            <a id='btn-setfp' rel="tooltip" data-title="Definir/Remover marcação de Falso Positivo" class="btn-warning btn btn-default dropdown-toggle" data-toggle="dropdown"><i class='glyphicon glyphicon-ban-circle glyphicon glyphicon-white'></i></a>
+            <ul class="dropdown-menu">
+                <li><a href='#' class='link' onClick='setFp(1)'>Marcar como Falso Positivo</a></li>
+                <li><a href='#' class='link' onClick='setFp(0)'>Remover marcação de Falso Positivo</a></li>
+            </ul>
+        </div>
+  </div>
+    <script src="${docroot}/static/node_modules/sigma/build/sigma.min.js"></script>
+    <script src="${docroot}/static/node_modules/sigma/build/plugins/sigma.parsers.json.min.js"></script>
+    <script src="${docroot}/static/node_modules/sigma/build/plugins/sigma.plugins.dragNodes.min.js"></script>
+    <script src="${docroot}/static/node_modules/sigma/build/plugins/sigma.layout.forceAtlas2.min.js"></script>
+    <script src="${docroot}/static/node_modules/sigma/build/plugins/sigma.renderers.snapshot.min.js"></script>
+    <script type='text/javascript'>
+        var currentType = "ALL";
+        var currentTypeName = "All";
+        var currentSection = "btn-browse";
+        var lastSearchType = "ALL";
+        var lastSearchQuery = "";
+        var dataloaders = [];
+        var sharedSigma = "";
+        var graphLabelMode = "relevant";
+        var currentFindingHash = "";
+        var findingOptionLabels = {
+            triage_status: {"novo":"Novo","em_triagem":"Em triagem","relevante":"Relevante","descartado":"Descartado","falso_positivo":"Falso positivo","confirmado":"Confirmado"},
+            relevance: {"pendente":"Pendente","baixa":"Baixa","media":"Média","alta":"Alta","critica":"Crítica"},
+            exploitability: {"nao_avaliado":"Não avaliado","nao_aplicavel":"Não aplicável","nao_exploravel":"Não explorável","potencial":"Potencial","confirmada":"Confirmada"},
+            analyst_verdict: {"em_analise":"Em análise","monitorar":"Monitorar","sem_risco_pratico":"Sem risco prático","exposto_confirmado":"Exposto e confirmado","exploravel":"Explorável","critico":"Crítico"}
+        };
+        var loadersrunning = false;
+        var refresh = function() { browseEventList("${id}"); }
+        $('#searchvalue').popover({ 'trigger': 'focus', 'placement': 'bottom'});
+        $('#searchvalue').keyup(function(event) {
+            if (event.keyCode == 13) {
+                $('#searchbutton').click();
+            }
+        });
+
+        function switchSelectAll() {
+            if (!$("#checkall")[0].checked) {
+                $("input[id*=cb_]").prop('checked', false);
+            } else {
+                $("input[id*=cb_]").prop('checked', true);
+            }
+        }
+
+        function getSelected() {
+            ids = [];
+            $("input[id*=cb_]").each(function(i, obj) {
+                if (obj.checked) {
+                    ids[ids.length] = obj.id.replace("cb_", "");
+                }
+            });
+
+            return ids;
+        }
+
+        function setFp(flag) {
+            sel = getSelected();
+            if (sel.length == 0) {
+                alertify.error("Você precisa selecionar pelo menos um registro.");
+                return false;
+            }
+            data = JSON.stringify(sel);
+            $("#loader").show();
+            sf.fetchData('${docroot}/resultsetfp', {'id': '${id}', 'fp': flag, 'resultids': data }, function(ret) {
+                $("#loader").hide();
+                if (ret[0] == "SUCCESS") {
+                    refresh();
+                    return;
+                }
+                if (ret[0] == "WARNING") {
+                    alertify.error(ret[1]);
+                    return;
+                }
+                if (ret[0] == "ERROR") {
+                    alertify.error("Ocorreu um erro ao definir falsos positivos: " + ret[1] + "<br/>Se você acredita que isso seja um erro, saia e entre novamente. Se o problema persistir, reporte como bug.");
+                }
+            });
+        }
+
+        function escapeHtmlText(value) {
+            return $("<div>").text(value == null ? "" : String(value)).html();
+        }
+
+        function renderFindingSelectOptions(groupName, selectedValue) {
+            var options = "";
+            var labels = findingOptionLabels[groupName] || {};
+            Object.keys(labels).forEach(function(key) {
+                options += "<option value='" + key + "'" + (selectedValue == key ? " selected" : "") + ">" + escapeHtmlText(labels[key]) + "</option>";
+            });
+            return options;
+        }
+
+        function findingBadgeClass(value) {
+            if (value == "ok") {
+                return "alert-success";
+            }
+            if (value == "warning") {
+                return "alert-warning";
+            }
+            if (value == "error") {
+                return "alert-danger";
+            }
+            if (value == "confirmado" || value == "critica" || value == "exploravel" || value == "critico" || value == "confirmada") {
+                return "alert-danger";
+            }
+            if (value == "relevante" || value == "alta" || value == "potencial" || value == "exposto_confirmado" || value == "em_triagem") {
+                return "alert-warning";
+            }
+            if (value == "descartado" || value == "falso_positivo" || value == "nao_exploravel" || value == "nao_aplicavel" || value == "sem_risco_pratico") {
+                return "alert-success";
+            }
+            return "alert-info";
+        }
+
+        function refreshOperationalSummary(instanceId) {
+            sf.fetchData('${docroot}/scanopssummary', {'id': instanceId}, function(data) {
+                if (!data || !data.summary) {
+                    return;
+                }
+                var triageHtml = "";
+                Object.keys(findingOptionLabels.triage_status).forEach(function(key) {
+                    triageHtml += "<div><span class='badge " + findingBadgeClass(key) + "'>" + escapeHtmlText(findingOptionLabels.triage_status[key]) + "</span> " + (data.summary.triage_status[key] || 0) + "</div>";
+                });
+                var exploitHtml = "";
+                Object.keys(findingOptionLabels.exploitability).forEach(function(key) {
+                    exploitHtml += "<div><span class='badge " + findingBadgeClass(key) + "'>" + escapeHtmlText(findingOptionLabels.exploitability[key]) + "</span> " + (data.summary.exploitability[key] || 0) + "</div>";
+                });
+                $("#ops-triage-breakdown").html(triageHtml);
+                $("#ops-exploit-breakdown").html(exploitHtml);
+                $("#ops-evidence-count").text(data.summary.evidence_count || 0);
+                $("#ops-validation-count").text(data.summary.validation_count || 0);
+                $("#case-verdict").html(renderFindingSelectOptions("analyst_verdict", data.verdict.verdict));
+                $("#case-verdict-summary").val(data.verdict.summary || "");
+                $("#case-verdict-updated").text(data.verdict.updated ? "Atualizado" : "Ainda sem veredito final salvo.");
+            });
+        }
+
+        function saveCaseVerdict(instanceId) {
+            sf.fetchData('${docroot}/scanverdictupdate', {
+                'id': instanceId,
+                'verdict': $("#case-verdict").val(),
+                'summary': $("#case-verdict-summary").val()
+            }, function(ret) {
+                if (ret[0] == "SUCCESS") {
+                    alertify.success(ret[1]);
+                    refreshOperationalSummary(instanceId);
+                } else {
+                    alertify.error(ret[1]);
+                }
+            });
+        }
+
+        function openFindingWorkbench(instanceId, resultHash) {
+            currentFindingHash = resultHash;
+            $("#finding-workbench").removeClass("hidden");
+            $("#finding-workbench-loading").show();
+            $("#finding-workbench-content").hide();
+            sf.fetchData('${docroot}/findingdetail', {'id': instanceId, 'resulthash': resultHash}, function(data) {
+                $("#finding-workbench-loading").hide();
+                $("#finding-workbench-content").show();
+                if (!data || data.error) {
+                    $("#finding-meta").html("<div class='alert alert-danger'>Não foi possível carregar o achado selecionado.</div>");
+                    return;
+                }
+                var finding = data.finding || {};
+                var state = data.state || {};
+                $("#finding-selected-hash").text(finding.hash || resultHash);
+                $("#finding-meta").html(
+                    "<div><b>Tipo:</b> " + escapeHtmlText(finding.event_label || finding.event_type || "-") + "</div>" +
+                    "<div><b>Dado:</b> " + escapeHtmlText(finding.data || "-") + "</div>" +
+                    "<div><b>Origem:</b> " + escapeHtmlText(finding.source_data || "-") + "</div>" +
+                    "<div><b>Módulo:</b> " + escapeHtmlText(finding.module || "-") + "</div>" +
+                    "<div><b>Coletado em:</b> " + escapeHtmlText(finding.generated || "-") + "</div>" +
+                    "<div style='margin-top:8px;'><b>Validador:</b> " + escapeHtmlText((data.validator_support || {}).validator || "generic_observation") + "</div>" +
+                    "<div class='text-muted font-size-90-percent'>" + escapeHtmlText((data.validator_support || {}).description || "Sem descrição.") + "</div>"
+                );
+                $("#finding-triage-status").html(renderFindingSelectOptions("triage_status", state.triage_status));
+                $("#finding-relevance").html(renderFindingSelectOptions("relevance", state.relevance));
+                $("#finding-exploitability").html(renderFindingSelectOptions("exploitability", state.exploitability));
+                $("#finding-analyst-verdict").html(renderFindingSelectOptions("analyst_verdict", state.analyst_verdict));
+                $("#finding-notes").val(state.notes || "");
+
+                var evidenceHtml = data.evidence.length
+                    ? data.evidence.map(function(item) {
+                        return "<div class='sf-inline-card'><div><b>" + escapeHtmlText(item.title) + "</b> <span class='text-muted'>(" + escapeHtmlText(item.evidence_type) + ")</span></div><div class='font-size-90-percent'>" + escapeHtmlText(item.content) + "</div><div class='text-muted font-size-90-percent'>" + item.created + "</div></div>";
+                      }).join("")
+                    : "<div class='text-muted'>Nenhuma evidência registrada para este achado.</div>";
+                $("#finding-evidence-list").html(evidenceHtml);
+
+                var validationHtml = data.validations.length
+                    ? data.validations.map(function(item) {
+                        return "<div class='sf-inline-card'><div><span class='badge " + findingBadgeClass(item.status) + "'>" + escapeHtmlText(item.status) + "</span> <b>" + escapeHtmlText(item.validator) + "</b></div><div>" + escapeHtmlText(item.summary) + "</div><pre class='table-border-bg-inherit' style='white-space: pre-wrap; margin-top: 6px;'>" + escapeHtmlText(item.details) + "</pre><div class='text-muted font-size-90-percent'>" + item.created + "</div></div>";
+                      }).join("")
+                    : "<div class='text-muted'>Nenhuma validação executada ainda.</div>";
+                $("#finding-validation-list").html(validationHtml);
+            });
+        }
+
+        function saveFindingState(instanceId) {
+            if (!currentFindingHash) {
+                alertify.error("Selecione um achado antes de salvar.");
+                return;
+            }
+            sf.fetchData('${docroot}/findingupdate', {
+                'id': instanceId,
+                'resulthash': currentFindingHash,
+                'triage_status': $("#finding-triage-status").val(),
+                'relevance': $("#finding-relevance").val(),
+                'exploitability': $("#finding-exploitability").val(),
+                'analyst_verdict': $("#finding-analyst-verdict").val(),
+                'notes': $("#finding-notes").val()
+            }, function(ret) {
+                if (ret[0] == "SUCCESS") {
+                    alertify.success(ret[1]);
+                    openFindingWorkbench(instanceId, currentFindingHash);
+                    refreshOperationalSummary(instanceId);
+                } else {
+                    alertify.error(ret[1]);
+                }
+            });
+        }
+
+        function addFindingEvidence(instanceId) {
+            if (!currentFindingHash) {
+                alertify.error("Selecione um achado antes de anexar evidência.");
+                return;
+            }
+            sf.fetchData('${docroot}/findingevidenceadd', {
+                'id': instanceId,
+                'resulthash': currentFindingHash,
+                'evidence_type': $("#finding-evidence-type").val(),
+                'title': $("#finding-evidence-title").val(),
+                'content': $("#finding-evidence-content").val()
+            }, function(ret) {
+                if (ret[0] == "SUCCESS") {
+                    alertify.success(ret[1]);
+                    $("#finding-evidence-title").val("");
+                    $("#finding-evidence-content").val("");
+                    openFindingWorkbench(instanceId, currentFindingHash);
+                    refreshOperationalSummary(instanceId);
+                } else {
+                    alertify.error(ret[1]);
+                }
+            });
+        }
+
+        function validateFinding(instanceId) {
+            if (!currentFindingHash) {
+                alertify.error("Selecione um achado antes de validar.");
+                return;
+            }
+            sf.fetchData('${docroot}/findingvalidate', {'id': instanceId, 'resulthash': currentFindingHash}, function(ret) {
+                if (ret[0] == "SUCCESS") {
+                    alertify.success(ret[1]);
+                    openFindingWorkbench(instanceId, currentFindingHash);
+                    refreshOperationalSummary(instanceId);
+                } else {
+                    alertify.error(ret[1]);
+                }
+            });
+        }
+
+        function navTo(target) {
+            var targets = [ "btn-browse", "btn-info", "btn-log", 
+                "btn-export", "btn-download-logs", "btn-viz",
+                "btn-status", "btn-graph", "btn-correlations" ]
+            for (var i = 0; i < targets.length; i++) {
+                if (targets[i] == target) {
+                    $("#" + targets[i]).addClass("active");
+                } else {
+                    $("#" + targets[i]).removeClass("active");
+                }
+            }
+
+            $("#breadcrumbs").remove();
+            $("#customtabview").hide();
+            $("#customvizview").hide();
+            $("#customgraphlabels").hide();
+            $("#modifyactions").hide();
+            currentSection = target
+            dataloaders = []
+        }
+
+        function searchDirector(instanceId) {
+            qry = $("#searchvalue").val();
+            if (currentType == "ALL") {
+                searchResults(instanceId, qry);
+            } else {
+                searchResults(instanceId, qry, currentType);
+            }
+        }
+
+        function searchResults(instanceId, query, typeName) {
+            // Remove pre-existing tables if they exist
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            navTo("btn-search");
+            $("#modifyactions").hide();
+            $("#loader").show();
+            $("#btn-export").show();
+            $("#btn-download-logs").hide();
+            $("#btn-refresh").show();
+            $("#btn-search").show();
+            $("#scanreminder").hide();
+            refresh = function() { searchResults(instanceId, query, typeName); }
+            sf.search(instanceId, query, typeName, function(data) {
+                            lastSearchType = typeName;
+                            lastSearchQuery = query;
+                            var crumbs = " <ul class='breadcrumb' id='breadcrumbs'> <li><a class='link' onClick='browseEventList(\"" + instanceId + "\");'>Navegar</a>";
+                            crumbs += " <span class='divider'></span></li>";
+                            if (typeName != null) {
+                                crumbs += " <li><a class='link' onClick=";
+                                crumbs += "'browseEventData(\"" + instanceId + "\",\"" + currentTypeName + "\",\"" + typeName + "\",\"full\");'>";
+                                crumbs += unescape(currentTypeName) + "</a><span class='divider'></span></li>";
+                            }
+                            crumbs += "<li>Resultados da pesquisa";
+                            crumbs += " (" + data.length + " registros)</li></ul>";
+
+                            if (data.length == 0) {
+                                var table = "<div id='scansummary-content'>&nbsp;&nbsp;Nenhum resultado encontrado. Tente ampliar seus critérios de busca.</div>";
+                            } else {
+                                var table = "<table id='scansummary-content' class='table table-bordered table-striped small tablesorter'><thead><tr>";
+                                if (typeName == null) {
+                                    table += "<th class='sorter-false'>Data Element Type</th>";
+                                }
+                                table += "<th>Data Element</th><th>Source Data Element</th><th>Source Module</th><th>Identified</th></tr></thead><tbody>";
+                                for (var i = 0; i < data.length; i++) {
+                                    table += "<tr>";
+                                    if (typeName == null) {
+                                        table += "<td><pre class='table-border-bg-inherit'>" + data[i][8] + "</pre></td>";
+                                    }
+                                    table += "<td><pre class='table-border-bg-inherit'>";
+                                    table += sf.replace_sfurltag(data[i][1]);
+                                    // for debug
+                                    table += "</pre></td><td><pre class='table-border-bg-inherit'>";
+                                    table += sf.replace_sfurltag(data[i][2]);
+                                    table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][3];
+                                    table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][0];
+                                    table += "</pre></td>";
+                                    table += "</tr>";
+                                }
+                                table += "</tbody></table>"
+                            }
+                            $("#loader").fadeOut(500);
+                            $("#mainbody").append(crumbs + table);
+                            $("#scansummary-content").tablesorter();
+            });
+        }
+
+        // Visualisation
+        function graphEvents(instanceId) {
+            grid = "<div id='scansummary-content'><br />"
+            grid += "<div class='row'>"
+            grid += "<div class='col-md-9'><div class='graph-container sf-table-shell' id='graph-container'></div></div>"
+            grid += "<div class='col-md-3'>"
+            grid += "<div class='panel panel-default'>"
+            grid += "<div class='panel-heading'><i class='glyphicon glyphicon-info-sign'></i>&nbsp;&nbsp;Leitura do Grafo</div><div class='panel-body'>"
+            grid += "<div class='font-size-90-percent' style='margin-bottom: 12px;'>"
+            grid += "<div><span style='color:#ff6b6b'>●</span> Alvo raiz</div>"
+            grid += "<div><span style='color:#51cf66'>●</span> Domínios / hostnames</div>"
+            grid += "<div><span style='color:#4dabf7'>●</span> IPs / redes</div>"
+            grid += "<div><span style='color:#f59f00'>●</span> E-mails</div>"
+            grid += "<div><span style='color:#ff922b'>●</span> Pessoas</div>"
+            grid += "<div><span style='color:#fcc419'>●</span> Usernames</div>"
+            grid += "<div><span style='color:#845ef7'>●</span> Perfis / contas externas</div>"
+            grid += "<div><span style='color:#20c997'>●</span> Repositórios / apps / localização</div>"
+            grid += "<div><span style='color:#ced4da'>●</span> Outros tipos mapeados genericamente</div>"
+            grid += "</div>"
+            grid += "<div class='font-size-90-percent' style='margin-bottom: 12px;'>Nodos maiores tendem a ter mais relações e mais módulos associados.</div>"
+            grid += "<div id='graph-node-info' class='font-size-90-percent' style='word-break: break-word; overflow-wrap: anywhere; line-height: 1.5;'>Passe o mouse ou clique em um nodo para ver detalhes.</div>"
+            grid += "</div></div></div>"
+            grid += "</div></div>"
+
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            $("#loader").show();
+            $("#btn-export").show();
+            $("#btn-download-logs").hide();
+            $("#btn-refresh").show();
+            $("#btn-search").hide();
+            $("#btn-graph").show();
+            $("#scanreminder").hide();
+            refresh = function() { graphEvents(instanceId); }
+            navTo("btn-graph");
+            $("#customvizview").show();
+            $("#customgraphlabels").show();
+            $("#mainbody").append(grid);
+            $("#btn-forceatlas").removeClass("active");
+            $("#btn-random").addClass("active");
+            $("#btn-labels-relevant").addClass("active");
+            $("#btn-labels-all").removeClass("active");
+            $("#btn-labels-off").removeClass("active");
+
+            sigma.renderers.def = sigma.renderers.canvas
+            sigma.parsers.json("${docroot}/scanviz?id=" + instanceId + "&gexf=0", {
+                container: 'graph-container'
+            }, function(s) { 
+                if (s.renderers[0].nodesOnScreen.length == 0) {
+                    $("#graph-container").append("<div class='alert alert-danger'>Insufficient data to produce a graph.</div>");
+                    $("#loader").hide();
+                    return;
+                }
+                sharedSigma = s;
+                function cleanGraphText(text) {
+                    return String(text || "")
+                        .replace(/<\/?sfurl>/gi, " ")
+                        .replace(/&lt;\/?sfurl&gt;/gi, " ")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                }
+                function inferGraphNodeColor(node) {
+                    var eventType = String(node.sfEventType || "").toUpperCase();
+                    var eventLabel = String(node.sfEventLabel || "").toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+                    var labelText = cleanGraphText(node.sfFullLabel || node.label || "");
+                    var lowerLabel = labelText.toLowerCase();
+                    var color = "";
+
+                    var eventPalette = {
+                        "HUMAN_NAME": "#ff6b6b",
+                        "USERNAME": "#fcc419",
+                        "EMAILADDR": "#f59f00",
+                        "AFFILIATE_EMAILADDR": "#ffb347",
+                        "IP_ADDRESS": "#4dabf7",
+                        "IPV6_ADDRESS": "#4dabf7",
+                        "NETBLOCK_OWNER": "#74c0fc",
+                        "NETBLOCKV6_OWNER": "#74c0fc",
+                        "DOMAIN_NAME": "#51cf66",
+                        "INTERNET_NAME": "#51cf66",
+                        "INTERNET_NAME_UNRESOLVED": "#74c69d",
+                        "AFFILIATE_INTERNET_NAME": "#8ce99a",
+                        "AFFILIATE_DOMAIN_NAME": "#8ce99a",
+                        "SOCIAL_MEDIA": "#845ef7",
+                        "ACCOUNT_EXTERNAL_OWNED": "#845ef7",
+                        "SIMILAR_ACCOUNT_EXTERNAL": "#b197fc",
+                        "PUBLIC_CODE_REPO": "#20c997",
+                        "APPSTORE_ENTRY": "#20c997",
+                        "CLOUD_STORAGE_BUCKET": "#20c997",
+                        "COMPANY_NAME": "#f06595",
+                        "AFFILIATE_COMPANY_NAME": "#faa2c1",
+                        "PHONE_NUMBER": "#9775fa",
+                        "BITCOIN_ADDRESS": "#fab005",
+                        "COUNTRY_NAME": "#20c997",
+                        "PHYSICAL_ADDRESS": "#20c997",
+                        "PHYSICAL_COORDINATES": "#20c997"
+                    };
+
+                    if (eventPalette[eventType]) {
+                        return eventPalette[eventType];
+                    }
+
+                    if (eventPalette[eventLabel]) {
+                        return eventPalette[eventLabel];
+                    }
+
+                    if (/https?:\/\/(www\.)?(t\.me|telegram\.me|instagram\.com|tiktok\.com|pinterest\.com|youtube\.com|youtu\.be|linktr\.ee|spotify\.com|disqus\.com|gravatar\.com|kaggle\.com|habbo\.com)/i.test(lowerLabel)) {
+                        color = "#845ef7";
+                    } else if (/https?:\/\/(www\.)?(github\.com|gitlab\.com|bitbucket\.org|play\.google\.com|apps\.apple\.com|microsoft\.com\/store)/i.test(lowerLabel)) {
+                        color = "#20c997";
+                    } else if (/https?:\/\/[^\s]+/.test(lowerLabel)) {
+                        color = "#74c69d";
+                    }
+
+                    if (!color) {
+                        if (lowerLabel.indexOf("(category: social)") >= 0) {
+                            color = "#845ef7";
+                        } else if (lowerLabel.indexOf("(category: video)") >= 0 || lowerLabel.indexOf("(category: music)") >= 0) {
+                            color = "#e599f7";
+                        } else if (lowerLabel.indexOf("(category: image)") >= 0 || lowerLabel.indexOf("(category: blog)") >= 0) {
+                            color = "#f06595";
+                        } else if (lowerLabel.indexOf("(category: coding)") >= 0) {
+                            color = "#20c997";
+                        } else if (lowerLabel.indexOf("(category: finance)") >= 0) {
+                            color = "#94d82d";
+                        } else if (lowerLabel.indexOf("(category: gaming)") >= 0) {
+                            color = "#ff922b";
+                        }
+                    }
+
+                    if (!color) {
+                        if (/^[a-z0-9._-]{3,64}$/i.test(labelText) && !/@/.test(labelText) && !/https?:\/\//i.test(labelText)) {
+                            color = "#fcc419";
+                        } else if (/^[A-Za-zÀ-ÿ'`.-]+(?:\s+[A-Za-zÀ-ÿ'`.-]+)+$/.test(labelText) && !/https?:\/\//i.test(labelText)) {
+                            color = "#ff922b";
+                        }
+                    }
+
+                    return color || "#adb5bd";
+                }
+                s.graph.nodes().forEach(function(node) {
+                    node.label = cleanGraphText(node.label);
+                    node.sfFullLabel = cleanGraphText(node.sfFullLabel || node.label);
+                    node.color = inferGraphNodeColor(node);
+                    node.originalColor = node.color;
+                    node.active_color = node.color;
+                });
+                s.settings({
+                    edgeColor: 'default',
+                    defaultEdgeColor: '#8b949e',
+                    minNodeSize: 2,
+                    maxNodeSize: 10,
+                    defaultLabelSize: 11,
+                    labelThreshold: 6,
+                    defaultLabelColor: '#d4d4d4'
+                });
+                graphLabelModeUpdate(graphLabelMode, false);
+                function linkifyGraphText(text) {
+                    var cleaned = cleanGraphText(text);
+                    var escaped = $("<div>").text(cleaned).html();
+                    return escaped.replace(
+                        /(https?:\/\/[^\s<]+)/g,
+                        "<a href='$1' target='_blank' rel='noopener noreferrer'>$1</a>"
+                    );
+                }
+                function renderNodeInfo(node) {
+                    var details = "<div><b>" + linkifyGraphText(node.sfFullLabel || node.label || "Sem rótulo") + "</b></div>";
+                    if (node.sfEventLabel) {
+                        details += "<div style='margin-top:6px;'><b>Tipo:</b> " + linkifyGraphText(node.sfEventLabel) + "</div>";
+                    }
+                    if (node.sfOccurrences !== undefined) {
+                        details += "<div><b>Ocorrências:</b> " + node.sfOccurrences + "</div>";
+                    }
+                    if (node.sfDegree !== undefined) {
+                        details += "<div><b>Conexões:</b> " + node.sfDegree + "</div>";
+                    }
+                    if (node.sfModuleCount !== undefined) {
+                        details += "<div><b>Módulos:</b> " + node.sfModuleCount + "</div>";
+                    }
+                    if (node.sfModules) {
+                        details += "<div style='margin-top:6px;'><b>Fontes/Módulos:</b><br>" + linkifyGraphText(node.sfModules) + "</div>";
+                    }
+                    $("#graph-node-info").html(details);
+                }
+                s.bind('overNode', function(e) { renderNodeInfo(e.data.node); });
+                s.bind('clickNode', function(e) { renderNodeInfo(e.data.node); });
+                sigma.plugins.dragNodes(s, s.renderers[0])
+                s.refresh()
+                $("#loader").hide();
+            });
+        }
+
+        function graphLabelModeUpdate(mode, refreshGraph) {
+            if (typeof refreshGraph === "undefined") {
+                refreshGraph = true;
+            }
+
+            graphLabelMode = mode;
+            $("#btn-labels-relevant").toggleClass("active", mode == "relevant");
+            $("#btn-labels-all").toggleClass("active", mode == "all");
+            $("#btn-labels-off").toggleClass("active", mode == "off");
+
+            if (!sharedSigma) {
+                return;
+            }
+
+            if (mode == "all") {
+                sharedSigma.settings({
+                    drawLabels: true,
+                    labelThreshold: 0,
+                    defaultLabelSize: 11
+                });
+            }
+
+            if (mode == "relevant") {
+                sharedSigma.settings({
+                    drawLabels: true,
+                    labelThreshold: 6,
+                    defaultLabelSize: 11
+                });
+            }
+
+            if (mode == "off") {
+                sharedSigma.settings({
+                    drawLabels: false
+                });
+            }
+
+            if (refreshGraph) {
+                sharedSigma.refresh();
+            }
+        }
+
+        function vizUpdate(method) {
+            s = sharedSigma
+            if (method == "force") {
+                $("#btn-forceatlas").addClass("active");
+                $("#btn-random").removeClass("active");
+                s.startForceAtlas2();
+                s.refresh();
+                setTimeout(function() { s.stopForceAtlas2() }, 5000);
+            }
+
+            if (method == "random") {
+                $("#btn-forceatlas").removeClass("active");
+                $("#btn-random").addClass("active");
+                refresh();
+            }
+
+            if (method == "download") {
+                s.renderers[0].snapshot({download: true});
+            }
+        }
+
+        // Scan status
+        function scanSummaryView(instanceId) {
+            grid = "<div id='scansummary-content'>";
+            grid += "<div class='row'>";
+            grid += "<div class='col-sm-7'>";
+            grid += "<div class='panel panel-default'>";
+            grid += "<div class='panel-heading'><i class='glyphicon glyphicon-eye-open'></i>&nbsp;&nbsp;Status da Varredura</div><div class='panel-body' style='padding: 5px'>";
+            grid += "<div class='btn-toolbar text-center'>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-secondary' style='cursor: default;'>Total</span></button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='tcounter' style='cursor: default;'>?</button></div>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-secondary' style='cursor: default;'>Únicos</button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='ucounter' style='cursor: default;'>?</button></div>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-secondary' style='cursor: default;'>Status</button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='status' style='cursor: default;'>?</button></div>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-secondary' style='cursor: default;'>Erros</button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='errors' style='cursor: default;'>?</button></div>";
+            grid += "</div></div></div></div>";
+            grid += "<div class='col-sm-5'>";
+            grid += "<div class='panel panel-default'>";
+            grid += "<div class='panel-heading'><i class='glyphicon glyphicon-exclamation-sign'></i>&nbsp;&nbsp;Correlações</div><div class='panel-body' style='padding: 5px'>";
+            grid += "<div class='btn-toolbar text-center'>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-danger' style='cursor: default;'>Alto</span></button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='corr-high' style='cursor: default;'>?</button></div>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-warning' style='cursor: default;'>Médio</button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='corr-medium' style='cursor: default;'>?</button></div>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-primary' style='cursor: default;'>Baixo</button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='corr-low' style='cursor: default;'>?</button></div>";
+            grid += "<div class='btn-group' style='float: unset; padding: 5px'><button class='btn disabled btn-md btn-success' style='cursor: default;'>Info</button>";
+            grid += "<button class='btn disabled btn-md btn-default' id='corr-info' style='cursor: default;'>?</button></div>";
+            grid += "</div></div></div></div></div>";
+            grid += "<div class='row'><div class='col-sm-12'>";
+            grid += "<div class='panel panel-default'>";
+            grid += "<div class='panel-heading'><i class='glyphicon glyphicon-tasks'></i>&nbsp;&nbsp;Progresso da Execução</div><div class='panel-body'>";
+            grid += "<div class='row'>";
+            grid += "<div class='col-sm-3'><div><b>Percentual estimado</b></div><div id='progress-percent'>?</div></div>";
+            grid += "<div class='col-sm-3'><div><b>Módulos com atividade</b></div><div id='progress-active'>?</div></div>";
+            grid += "<div class='col-sm-3'><div><b>Módulos pendentes</b></div><div id='progress-pending'>?</div></div>";
+            grid += "<div class='col-sm-3'><div><b>Fila de eventos</b></div><div id='progress-queue'>?</div></div>";
+            grid += "</div>";
+            grid += "<div class='progress' style='margin-top: 12px; margin-bottom: 12px;'><div id='progress-bar' class='progress-bar progress-bar-info' role='progressbar' style='width: 0%;'>0%</div></div>";
+            grid += "<div class='row'>";
+            grid += "<div class='col-sm-4'><b>Em execução</b><div id='progress-running' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "<div class='col-sm-4'><b>Com atividade recente</b><div id='progress-top-active' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "<div class='col-sm-4'><b>Ainda sem saída</b><div id='progress-pending-list' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "</div>";
+            grid += "<div style='margin-top: 12px;'><b>Último sinal do pipeline</b><div id='progress-latest-log' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "</div></div></div></div>";
+            grid += "<div class='row'><div class='col-sm-12'>";
+            grid += "<div class='panel panel-default'>";
+            grid += "<div class='panel-heading'><i class='glyphicon glyphicon-check'></i>&nbsp;&nbsp;Triagem Operacional e Veredito</div><div class='panel-body'>";
+            grid += "<div class='row'>";
+            grid += "<div class='col-sm-4'><b>Achados por triagem</b><div id='ops-triage-breakdown' class='font-size-90-percent' style='margin-top: 8px;'>Carregando...</div></div>";
+            grid += "<div class='col-sm-3'><b>Explorabilidade</b><div id='ops-exploit-breakdown' class='font-size-90-percent' style='margin-top: 8px;'>Carregando...</div></div>";
+            grid += "<div class='col-sm-2'><b>Evidências</b><div id='ops-evidence-count' style='font-size: 24px; margin-top: 8px;'>0</div></div>";
+            grid += "<div class='col-sm-3'><b>Validações</b><div id='ops-validation-count' style='font-size: 24px; margin-top: 8px;'>0</div></div>";
+            grid += "</div>";
+            grid += "<hr>";
+            grid += "<div class='row'>";
+            grid += "<div class='col-sm-4'><label>Veredito final do caso</label><select id='case-verdict' class='form-control'></select><div id='case-verdict-updated' class='text-muted font-size-90-percent' style='margin-top: 6px;'></div></div>";
+            grid += "<div class='col-sm-6'><label>Conclusão resumida</label><textarea id='case-verdict-summary' class='form-control' rows='3' placeholder='Registre aqui o veredito final, impacto, validade e próximos passos.'></textarea></div>";
+            grid += "<div class='col-sm-2'><label>&nbsp;</label><button class='btn btn-primary btn-block' onClick='saveCaseVerdict(\"${id}\")'>Salvar veredito</button></div>";
+            grid += "</div>";
+            grid += "</div></div></div>";
+            grid += "<div class='row'><div class='col-sm-12'>";
+            grid += "<div class='panel panel-default'>";
+            grid += "<div class='panel-heading'><i class='glyphicon glyphicon-stats'></i>&nbsp;&nbsp;Tipos de Dados</div><div class='panel-body'>";
+            grid += "<div id='vbarsummary'></div>";
+            grid += "</div></div></div></div>";
+
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            $("#loader").show();
+            $("#btn-export").hide();
+            $("#btn-download-logs").hide();
+            $("#btn-refresh").hide();
+            $("#btn-search").hide();
+            $("#scanreminder").show();
+            navTo("btn-status");
+
+            $("#mainbody").append(grid);
+
+            // Collect data and populate variables for use later
+            dataloaders.push(
+                function() {
+                    sf.fetchData('${docroot}/scanstatus', {'id': instanceId}, function(data) {
+                        scanName = data[0];
+                        scanTarget = data[1];
+                        scanStarted = data[2];
+                        scanEnded = data[4];
+                        scanStatus = data[5];
+                        scanCorrelations = data[6];
+
+                        $("#corr-high").html(scanCorrelations['HIGH']);
+                        $("#corr-medium").html(scanCorrelations['MEDIUM']);
+                        $("#corr-low").html(scanCorrelations['LOW']);
+                        $("#corr-info").html(scanCorrelations['INFO']);
+                    });
+                }
+            );
+
+            dataloaders.push(
+                function() {
+                    sf.fetchData('${docroot}/scanprogress', {'id': instanceId}, function(data) {
+                        $("#progress-percent").html(data.progress_percent + "%");
+                        $("#progress-active").html(data.active_modules + " / " + data.total_modules);
+                        $("#progress-pending").html(data.pending_modules);
+                        $("#progress-queue").html(data.queue_total == null ? "Sem dados" : data.queue_total);
+                        $("#progress-bar").css("width", data.progress_percent + "%").text(data.progress_percent + "%");
+                        $("#progress-running").html(data.running_module_names.length ? data.running_module_names.join("<br>") : "Nenhum módulo explicitamente identificado como em execução.");
+                        $("#progress-top-active").html(
+                            data.top_active_modules.length
+                                ? data.top_active_modules.map(function(item) {
+                                    return item.name + " (" + item.total + ")";
+                                  }).join("<br>")
+                                : "Ainda sem módulos com saída registrada."
+                        );
+                        $("#progress-pending-list").html(data.pending_module_names.length ? data.pending_module_names.join("<br>") : "Nenhum pendente visível.");
+                        var latestLog = data.latest_log_message || "Sem mensagem recente.";
+                        if (data.queue_preview) {
+                            latestLog += "<br><br><b>Fila observada:</b> " + data.queue_preview;
+                        }
+                        if (data.errored_module_names.length) {
+                            latestLog += "<br><br><b>Módulos com erro:</b> " + data.errored_module_names.join(", ");
+                        }
+                        $("#progress-latest-log").html(latestLog);
+                    });
+                }
+            );
+
+            dataloaders.push(
+                function() {
+                    refreshOperationalSummary(instanceId);
+                }
+            );
+
+            dataloaders.push(
+                function() {
+                    sf.fetchData('${docroot}/scanerrors', {'id': instanceId}, function(data) {
+                        $("#errors").html(data.length);
+                    });
+                }
+            );
+
+            dataloaders.push(
+                function() {
+                    sf.fetchData('${docroot}/scansummary', {'id': instanceId, 'by': 'type'}, function(data) {
+                        scanSummary = [];
+                        totalCount = 0;
+                        uniqueCount = 0;
+                        for (i = 0; i < data.length; i++) {
+                            scanSummary[i] = {};
+                            scanSummary[i].scanId = instanceId;
+                            scanSummary[i].id = data[i][0];
+                            scanSummary[i].name = data[i][1];
+                            scanSummary[i].total = data[i][3];
+                            scanSummary[i].counter = data[i][4];
+                            scanSummary[i].link = function(d) { return browseEventData(d.scanId, d.name, d.id, "full"); };
+                            totalCount += data[i][3];
+                            uniqueCount += data[i][4];
+                            scanStatus = data[i][5];
+                        }
+
+                        for (x = 0; x < i; x++) {
+                            scanSummary[x].pct = scanSummary[x].counter / uniqueCount;
+                        }
+
+                        $('#ucounter').html(uniqueCount);
+                        $('#tcounter').html(totalCount);
+                        $('#scanstatusbadge').html(scanStatus);
+
+                        var statusy = "";
+                        if (scanStatus == "FINISHED") {
+                            statusy = "alert-success";
+                        } else if (scanStatus.indexOf("ABORT") >= 0) {
+                            statusy = "alert-warning";
+                        } else if (scanStatus == "CREATED" || scanStatus == "RUNNING" || scanStatus == "STARTED" || scanStatus == "STARTING" || scanStatus == "INITIALIZING") {
+                            statusy = "alert-info";
+                        } else if (scanStatus.indexOf("FAILED") >= 0) {
+                            statusy = "alert-danger";
+                        } else {
+                            statusy = "alert-info";
+                        }
+                        $('#scanstatusbadge').removeClass(["alert-info", "alert-warning", "alert-danger"]).addClass(statusy);
+                        $('#status').html(scanStatus);
+                        $("#vbarsummary").empty();
+                        if (scanSummary.length == 0) {
+                          $("#vbarsummary").append("<div id='scansummary-content' class='alert alert-warning'><h4>No data.</h4>If the scan is still running this section will update shortly.</div>");
+                        } else {
+                          sf_viz_vbar("#vbarsummary", scanSummary);
+                        }
+                        $("#loader").fadeOut(500);
+                    });
+                }
+            );
+
+            loadersrunning = true;
+            for (var i = 0; i < dataloaders.length; i++) {
+                dataloaders[i]();
+            }
+            loadersrunning = false;
+        }
+
+        // Expand the correlation list to show the events associated
+        function toggleCorrelation(instanceId, correlationId) {
+            if (!$("#corrwell_tr_" + correlationId).hasClass("hidden")) {
+                $("#corrwell_td_" + correlationId).empty();
+                $("#corrwell_tr_" + correlationId).addClass("hidden");
+                return;
+            }
+            sf.fetchData('${docroot}/scaneventresults', { 'id': instanceId, 'correlationId': correlationId }, function(data) {
+                var table = "<table id='corrcontent_'" + correlationId + "' class='table table-bordered table-striped small'>";
+                table += "<thead><tr>";
+                table += "<th>Data Element</th></th>";
+                table += "<th>Source Data Element</th>";
+                table += "<th>Source Module</th>";
+                table += "<th>Identified</th>";
+                table += "</tr></thead><tbody>";
+
+                for (var i = 0; i < data.length; i++) {
+                    table += "<tr>";
+                    table += "<td><pre class='table-border-bg-inherit'>";
+                    table += sf.replace_sfurltag(data[i][1]);
+                    table += "</pre></td><td><pre class='table-border-bg-inherit'>";
+                    table += sf.replace_sfurltag(data[i][2]);
+                    table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][3];
+                    table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][0];
+                    table += "</pre></td>";
+                    table += "</tr>";
+                }
+                table += "</tbody></table>"
+                $("#corrwell_td_" + correlationId).prepend(table);
+                $("#corrwell_tr_" + correlationId).removeClass("hidden");
+            });
+        }
+
+        // Correlation results for the scan
+        function browseCorrelations(instanceId) {
+            $("#scansummary-content").remove();
+            $("#loader").show();
+            $("#btn-search").hide();
+            $("#btn-export").hide();
+            $("#scanreminder").hide();
+            navTo("btn-correlations");
+            refresh = function() { browseCorrelations(instanceId); }
+            sf.fetchData('${docroot}/scancorrelations', {'id': instanceId}, function(data) {
+                if (data.length == 0) {
+                    table = "<div id='scansummary-content' class='alert alert-warning'><h4>No correlations.</h4>If the scan is still running please reload once it has completed.</div>";
+                    $("#loader").fadeOut(500);
+                    $("#mainbody").append(table);
+                    sf.updateTooltips();
+                    return;
+                }
+                var table = "<table id='scansummary-content' class='table table-bordered table-striped table-condensed tablesorter small'>";
+                table += "<thead><tr><th>Correlation</th><th>Risk</th><th>Data Elements</th></tr></thead><tbody>";
+                for (var i = 0; i < data.length; i++) {
+                    table += "<tr>";
+                    table += "<td><a style='cursor: pointer' onClick='toggleCorrelation(\"" + instanceId + "\",\"" + data[i][0] + "\")'>" + data[i][1] + "</a>&nbsp;&nbsp;";
+                    table += "<i class='glyphicon glyphicon-question-sign' style='color: #ccc' rel='tooltip' data-title=\"" + data[i][5] + "\"></i>";
+                    table += "</td>";
+                    if (data[i][3] == "HIGH") {
+                        statusy = "alert-danger";
+                    }
+                    if (data[i][3] == "MEDIUM") {
+                        statusy = "alert-warning";
+                    }
+                    if (data[i][3] == "LOW") {
+                        statusy = "alert-info";
+                    }
+                    if (data[i][3] == "INFO") {
+                        statusy = "alert-success";
+                    }
+                    table += "<td><span class='badge " + statusy + "'>" + data[i][3] + "</span></td>";
+                    table += "<td>" + data[i][7] + "</td>";
+                    table += "</tr><tr class='hidden' id='corrwell_tr_" + data[i][0] + "'><td colspan=3 id='corrwell_td_" + data[i][0] + "'></td></tr>";
+                }
+                table += "</tbody></table>";
+                $("#loader").fadeOut(500);
+                $("#mainbody").append(table);
+                $.tablesorter.addParser({ 
+                    id: 'criticality', 
+                    is: function(s) { 
+                        return false; 
+                    }, 
+                    format: function(s) { 
+                        return s.toLowerCase().replace(/high/,3).replace(/medium/,2).replace(/low/,1).replace(/info/,0); 
+                    }, 
+                    type: 'numeric' 
+                });
+                $("#scansummary-content").tablesorter({ headers: { 1: { sorter: 'criticality' } } });
+                sf.updateTooltips();
+            });
+        }
+
+        // Logs for the scan
+        function viewScanLog(instanceId) {
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            $("#loader").show();
+            $("#btn-search").hide();
+            $("#btn-export").hide();
+            $("#btn-download-logs").show();
+            $("#scanreminder").hide();
+            navTo("btn-log");
+            refresh = function() { viewScanLog(instanceId); }
+            sf.fetchData('${docroot}/scanlog', {'id': instanceId}, function(data) {
+                            var table = "<table id='scanlogs-content' class='table table-bordered table-striped table-condensed small tablesorter' style='table-layout: fixed'>";
+                            table += "<thead><tr><th>Time</th><th>Component</th><th>Type</th><th>Event</th></tr></thead><tbody>";
+                            for (var i = 0; i < data.length; i++) {
+                                if (data[i][2] == "ERROR") {
+                                  table += "<tr class='danger'>";
+                                } else {
+                                  table += "<tr>";
+                                }
+                                table += "<td>" + data[i][0] + "</a></td>";
+                                table += "<td>" + data[i][1] + "</td>";
+                                table += "<td>" + data[i][2] + "</td>";
+                                table += "<td>" + data[i][3] + "</td>";
+                                table += "</tr>";
+                            }
+                            table += "</tbody></table>";
+                            $("#loader").fadeOut(500);
+                            $("#mainbody").append(table);
+                            $("#scanlogs-content").tablesorter({widgets: ["filter"], widgetOptions : { filter_searchDelay : 300, filter_hideFilters : false }});
+            });
+        }
+
+        // Summary of event types and counts for a scan
+        function browseEventList(instanceId) {
+            currentType = "ALL";
+            currentTypeName = "All";
+
+            // Remove pre-existing tables if they exist
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            navTo("btn-browse");
+            $("#loader").show();
+            $("#btn-export").show();
+            $("#btn-download-logs").hide();
+            $("#btn-refresh").show();
+            $("#btn-search").show();
+            $("#scanreminder").hide();
+            refresh = function() { browseEventList(instanceId); }
+            sf.fetchData('${docroot}/scansummary', {'id': instanceId, 'by': 'type'}, function(data) {
+                            var table = "<table id='scansummary-content' class='table table-bordered table-striped tablesorter'>";
+                            table += "<thead><tr> <th>Type</th><th>Unique Data Elements</th> <th>Total Data Elements</th><th>Last Data Element</th></tr></thead><tbody>";
+                            for (var i = 0; i < data.length; i++) {
+                                table += "<tr><td><a class='link' onClick='";
+                                table += "browseEventData(\"${id}\", \"" + escape(data[i][1]) + "\", \"" + data[i][0] + "\", \"full\");'>";
+                                table += data[i][1] + "</a></td>";
+                                table += "<td>" + data[i][4] + "</td>";
+                                table += "<td>" + data[i][3] + "</td>";
+                                table += "<td>" + data[i][2] + "</td>";
+                            }
+                            table += "</tbody></table>"
+
+                            if (data.length < 1) {
+                                table = "<div id='scansummary-content' class='alert alert-warning'><h4>No data.</h4>If the scan is still running please try again soon.</div>";
+                            }
+
+                            $("#loader").fadeOut(500);
+                            $("#mainbody").append(table);
+                            $("#scansummary-content").tablesorter();
+            });
+        }
+
+        // Detailed view of data for an event type for a scan
+        function browseEventData(instanceId, eventTypeLabel, eventType, format, filterFP) {
+            if (filterFP === 'undefined') {
+                filterFP = false;
+            }
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            $("#breadcrumbs").remove();
+            $("#loader").show();
+            navTo("btn-browse");
+            $("#btn-export").show();
+            $("#btn-download-logs").hide();
+            $("#btn-refresh").show();
+            $("#btn-search").show();
+            $("#customtabview").show();
+            $("#scanreminder").hide();
+            currentType = eventType;
+            currentTypeName = eventTypeLabel;
+            refresh = function() { browseEventData(instanceId, eventTypeLabel, eventType, format, filterFP); }
+            browseUpdate = function(newformat) { browseEventData(instanceId, eventTypeLabel, eventType, newformat, filterFP); }
+
+            if (format == 'full') {
+                $("#btn-fullview").addClass("active");
+                $("#btn-uniqueview").removeClass("active");
+                $("#btn-vizview").removeClass("active");
+                $("#modifyactions").show();
+                sf.fetchData('${docroot}/scaneventresults', {'id': instanceId, 'eventType': eventType }, function(data) {
+                            totalcount = 0;
+                            fpcount = 0;
+                            for (var i = 0; i < data.length; i++) {
+                                totalcount++;
+                                if (data[i][8] == "1") {
+                                    fpcount++;
+                                }
+                            }
+                            var crumbs = " <ul class='breadcrumb' id='breadcrumbs'> <li><a class='link' onClick='browseEventList(\"" + instanceId + "\");'>Navegar</a>";
+                            crumbs += " <span class='divider'></span></li> <li><a class='link' onClick=";
+                            crumbs += "'browseEventData(\"" + instanceId + "\",\"" + eventTypeLabel + "\",\"" + eventType + "\",\"";
+                            crumbs += format + "\", " + filterFP + ");'>";
+                            crumbs += unescape(eventTypeLabel) + "</a></li>";
+                            if (fpcount > 0) {
+                                crumbs += "<div class='pull-right text-center'><i class='glyphicon glyphicon-ban-circle'></i>&nbsp;&nbsp;Ocultar " + fpcount + " Falsos Positivos: ";
+                                crumbs += "<input class='vertical-align-top' type='checkbox' ";
+                                crumbs += "onClick=\"browseEventData('" + instanceId + "', '" + eventTypeLabel +"', '" + eventType + "'";
+                                crumbs += ",'" + format + "', ";
+                                if (!filterFP) {
+                                    fp = 1;
+                                    ch = "";
+                                } else {
+                                    fp = 0;
+                                    ch = "checked";
+                                }
+                                crumbs += fp + ")\" " + ch + "></input></div>";
+                            }
+                            crumbs += "</ul>";
+
+                            var workbench = "<div id='finding-workbench' class='panel panel-default hidden' style='margin-bottom: 16px;'>";
+                            workbench += "<div class='panel-heading'><i class='glyphicon glyphicon-briefcase'></i>&nbsp;&nbsp;Painel de Análise do Achado <span class='text-muted' id='finding-selected-hash'></span></div><div class='panel-body'>";
+                            workbench += "<div id='finding-workbench-loading' class='text-muted'>Carregando achado selecionado...</div>";
+                            workbench += "<div id='finding-workbench-content' style='display:none;'>";
+                            workbench += "<div class='row'><div class='col-sm-5'><div id='finding-meta' class='font-size-90-percent'></div></div>";
+                            workbench += "<div class='col-sm-7'><div class='row'>";
+                            workbench += "<div class='col-sm-6'><label>Status de triagem</label><select id='finding-triage-status' class='form-control'></select></div>";
+                            workbench += "<div class='col-sm-6'><label>Relevância</label><select id='finding-relevance' class='form-control'></select></div>";
+                            workbench += "</div><div class='row' style='margin-top:8px;'>";
+                            workbench += "<div class='col-sm-6'><label>Explorabilidade</label><select id='finding-exploitability' class='form-control'></select></div>";
+                            workbench += "<div class='col-sm-6'><label>Veredito do achado</label><select id='finding-analyst-verdict' class='form-control'></select></div>";
+                            workbench += "</div></div></div>";
+                            workbench += "<div style='margin-top:12px;'><label>Notas do analista</label><textarea id='finding-notes' class='form-control' rows='3' placeholder='Registre contexto, descarte, relevância, hipótese ou conclusão técnica.'></textarea></div>";
+                            workbench += "<div class='btn-toolbar' style='margin-top:12px;'><div class='btn-group'><button class='btn btn-primary' onClick='saveFindingState(\"${id}\")'>Salvar classificação</button><button class='btn btn-warning' onClick='validateFinding(\"${id}\")'>Executar validação segura</button></div></div>";
+                            workbench += "<hr><div class='row'><div class='col-sm-4'><label>Tipo de evidência</label><select id='finding-evidence-type' class='form-control'><option value='nota'>Nota</option><option value='url'>URL</option><option value='evidencia_tecnica'>Evidência técnica</option><option value='ioc'>IOC</option><option value='impacto'>Impacto</option></select></div>";
+                            workbench += "<div class='col-sm-8'><label>Título</label><input id='finding-evidence-title' class='form-control' type='text' placeholder='Ex.: Screenshot da exposição, resposta HTTP 200, banner do serviço'></div></div>";
+                            workbench += "<div style='margin-top:8px;'><label>Conteúdo</label><textarea id='finding-evidence-content' class='form-control' rows='3' placeholder='Cole aqui a evidência textual, URL, observação técnica, resposta resumida ou justificativa.'></textarea></div>";
+                            workbench += "<div style='margin-top:8px;'><button class='btn btn-default' onClick='addFindingEvidence(\"${id}\")'>Adicionar evidência</button></div>";
+                            workbench += "<div class='row' style='margin-top:14px;'><div class='col-sm-6'><h4>Evidências</h4><div id='finding-evidence-list'></div></div><div class='col-sm-6'><h4>Validações</h4><div id='finding-validation-list'></div></div></div>";
+                            workbench += "</div></div></div>";
+
+                            var table = "<table id='scansummary-content' class='table table-bordered table-striped small tablesorter'>";
+                            table += "<thead><tr>";
+                            table += "<th class='text-center'><input id='checkall' type='checkbox' onClick='switchSelectAll()'></th>";
+                            table += "<th>Data Element</th></th>";
+                            table += "<th>Source Data Element</th>";
+                            table += "<th>Source Module</th>";
+                            table += "<th>Identified</th>";
+                            table += "<th>Análise</th>";
+                            table += "</tr></thead><tbody>";
+
+                            for (var i = 0; i < data.length; i++) {
+                                if (filterFP && data[i][8] == "1") {
+                                    continue;
+                                }
+                                table += "<tr>";
+                                table += "<td class='text-center'><input type='checkbox' id='cb_" + data[i][7] + "'>";
+                                if (data[i][8] == "1") {
+                                    table += "<br /><i class='glyphicon glyphicon-ban-circle' class='vertical-align-bottom' />";
+                                }
+                                table += "</td>";
+                                table += "<td><pre class='table-border-bg-inherit'>";
+                                //table += "<a href='${docroot}/entityinfo?id=" + data[i][7] + "'>" + data[i][1] + "</a>";
+                                table += sf.replace_sfurltag(data[i][1]);
+                                table += "</pre></td><td><pre class='table-border-bg-inherit'>";
+                                table += sf.replace_sfurltag(data[i][2]);
+                                table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][3];
+                                table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][0];
+                                table += "</pre></td>";
+                                table += "<td class='text-center'><button class='btn btn-xs btn-default' onClick='openFindingWorkbench(\"" + instanceId + "\",\"" + data[i][7] + "\")'><i class='glyphicon glyphicon-edit'></i></button></td>";
+                                table += "</tr>";
+                            }
+                            table += "</tbody></table>"
+                            $("#loader").fadeOut(500);
+                            $("#mainbody").append(crumbs + workbench + table);
+                            $("#scansummary-content").tablesorter({ headers: { 0: { sorter: false }, 5: { sorter: false } } });
+                            lastChecked = null;
+                            var chkboxes = $('input[id*=cb_]');
+                            chkboxes.click(function(e) {
+                                if(!lastChecked) {
+                                    lastChecked = this;
+                                    return;
+                                }
+
+                                if(e.shiftKey) {
+                                    var start = chkboxes.index(this);
+                                    var end = chkboxes.index(lastChecked);
+
+                                    chkboxes.slice(Math.min(start,end), Math.max(start,end)+ 1).prop('checked', lastChecked.checked);
+
+                                }
+
+                                lastChecked = this;
+                            });
+
+                });
+            }
+
+            if (format == 'unique') {
+                $("#btn-uniqueview").addClass("active");
+                $("#btn-fullview").removeClass("active");
+                $("#btn-vizview").removeClass("active");
+                if (filterFP == "0") {
+                    filterFP = null;
+                }
+                sf.fetchData('${docroot}/scaneventresultsunique', {'id': instanceId, 'eventType': eventType, 'filterfp': filterFP }, function(data) {
+                            var crumbs = " <ul class='breadcrumb' id='breadcrumbs'> <li><a class='link' onClick='browseEventList(\"" + instanceId + "\");'>Navegar</a>";
+                            crumbs += " <span class='divider'></span></li> <li><a class='link' onClick=";
+                            crumbs += "'browseEventData(\"" + instanceId + "\",\"" + eventTypeLabel + "\",\"" + eventType + "\",\"" + format;
+                            crumbs += "\", " + filterFP + ");'>";
+                            crumbs += unescape(eventTypeLabel) + "</a></li>";
+                            crumbs += "<div class='pull-right text-center'><i class='glyphicon glyphicon-ban-circle'></i>&nbsp;&nbsp;&nbsp;&nbsp;Ocultar Falsos Positivos: ";
+                            crumbs += "<input class='vertical-align-top' type='checkbox' ";
+                            crumbs += "onClick=\"browseEventData('" + instanceId + "', '" + eventTypeLabel +"', '" + eventType + "'";
+                            crumbs += ",'" + format + "', ";
+                            if (!filterFP) {
+                                fp = 1;
+                                ch = "";
+                            } else {
+                                fp = 0;
+                                ch = "checked";
+                            }
+                            crumbs += fp + ")\" " + ch + "></input></div>";
+                            crumbs += "</ul>";
+
+                            var table = "<table id='scansummary-content' class='table table-bordered table-striped small'>";
+                            table += "<thead><tr> <th>Unique Data Element</th><th>Occurrences</th></tr></thead><tbody>";
+                            for (var i = 0; i < data.length; i++) {
+                                table += "<tr><td><pre class='table-border-bg-inherit'>";
+                                table += sf.replace_sfurltag(data[i][0]);
+                                table += "</pre></td><td>" + data[i][2] + "</td>";
+                                table += "</tr>";
+                            }
+                            table += "</tbody></table>"
+                            $("#loader").fadeOut(500);
+                            $("#mainbody").append(crumbs + table);
+                });
+            }
+
+            if (format.indexOf('viz') == 0) {
+                $("#btn-vizview").addClass("active");
+                $("#btn-fullview").removeClass("active");
+                $("#btn-uniqueview").removeClass("active");
+
+                if (format.indexOf("viz-bubble") == 0) {
+                    sf.fetchData('${docroot}/scaneventresults', {'id': instanceId, 'eventType': eventType }, function(data) {
+                        var crumbs = " <ul class='breadcrumb' id='breadcrumbs'> <li><a class='link' onClick='browseEventList(\"" + instanceId + "\");'>Navegar</a>";
+                        crumbs += " <span class='divider'>;</span></li> <li><a class='link' onClick=";
+                        crumbs += "'browseEventData(\"" + instanceId + "\",\"" + eventTypeLabel + "\",\"" + eventType + "\",\"" + format + "\");'>";
+                        crumbs += unescape(eventTypeLabel) + "</a></li></ul>";
+                        itemList = []
+                        for (var i = 0; i < data.length; i++) {
+                            if (format == "viz-bubble-source") {
+                                itemList.push(sf.remove_sfurltag(data[i][2]));
+                            }
+                            if (format == "viz-bubble-data") {
+                                itemList.push(sf.remove_sfurltag(data[i][1]));
+                            }
+                        }
+                        $("#loader").fadeOut(500);
+                        $("#mainbody").append(crumbs + "<div id='scansummary-content' class='text-center'></div>");
+                        sf_viz_bubble("#scansummary-content", itemList)
+                    });
+                }
+
+                if (format == "viz-dendro") {
+                    sf.fetchData("${docroot}/scanelementtypediscovery", {'id': instanceId, 'eventType': eventType }, function(data) {
+                        var crumbs = " <ul class='breadcrumb' id='breadcrumbs'> <li><a class='link' onClick='browseEventList(\"" + instanceId + "\");'>Navegar</a>";
+                        crumbs += " <span class='divider'></span></li> <li><a class='link' onClick=";
+                        crumbs += "'browseEventData(\"" + instanceId + "\",\"" + eventTypeLabel + "\",\"" + eventType + "\",\"" + format + "\");'>";
+                        crumbs += unescape(eventTypeLabel) + "</a></li></ul>";
+
+                        $("#loader").fadeOut(500);
+                        $("#mainbody").append(crumbs + "<div id='scansummary-content' class='text-center'></div>");
+                        sf_viz_dendrogram("#scansummary-content", data);
+                    });
+                }
+            }
+        }
+
+        function downloadLogs(instanceId) {
+            $("#loader").show();
+            sf.log("Loading logs for scan: " + instanceId);
+            var efr = document.getElementById('exportframe');
+            var urlBase = '${docroot}/scanexportlogs?id=';
+            efr.src = urlBase + instanceId;
+            $("#loader").fadeOut(500);
+        }
+
+        // Download the data currently being viewed
+        function exportEventData(instanceId, eventType, fileType) {
+            $("#loader").show();
+            var efr = document.getElementById('exportframe');
+            if (currentSection == "btn-search") {
+                if (lastSearchType == null || lastSearchType == "ALL") {
+                    type = "";
+                } else {
+                    type = lastSearchType;
+                }
+                if (fileType == "excel") {
+                    var urlBase = '${docroot}/scansearchresultexport?filetype=excel&id=';
+                } else {
+                    var urlBase = '${docroot}/scansearchresultexport?id=';
+                }
+                efr.src = urlBase + instanceId + '&eventType=' + type + "&value=" + lastSearchQuery;
+            }
+
+            if (currentSection == "btn-browse") {
+                if (fileType == "excel") {
+                    var urlBase = '${docroot}/scaneventresultexport?filetype=excel&id=';
+                } else {
+                    var urlBase = '${docroot}/scaneventresultexport?id=';
+                }
+                efr.src = urlBase + instanceId + '&type=' + eventType;
+            }
+
+            if (currentSection == "btn-graph") {
+                sf.log("Loading visualisation for scan: " + instanceId);
+                efr.src = '${docroot}/scanviz?id=' + instanceId + '&gexf=1';
+            }
+
+            $("#loader").fadeOut(500);
+        }
+
+        // View the configuration that was used for this scan
+        function viewScanConfig(instanceId) {
+            $("#scansummary-content").remove();
+            $("#scanlogs-content").remove();
+            $("#loader").show();
+            $("#btn-export").hide();
+            $("#btn-download-logs").hide();
+            $("#btn-refresh").show();
+            $("#btn-search").hide();
+            $("#scanreminder").hide();
+            navTo("btn-info");
+            refresh = function() { viewScanConfig(instanceId); }
+            sf.fetchData('${docroot}/scanopts', {'id': instanceId}, function(data) {
+                table = "<div id='scansummary-content'>";
+                table += "<h4>Meta Information</h4>";
+                table += "<div class='sf-table-shell'><table class='table table-striped'>";
+                table += "<tr><td>Name:</td><td>" + data['meta'][0] + "</td></tr>";
+                table += "<tr><td>Internal ID:</td><td>${id}</td></tr>";
+                table += "<tr><td>Target:</td><td>" + data['meta'][1] + "</td></tr>";
+                table += "<tr><td>Início:</td><td>" + data['meta'][3] + "</td></tr>";
+                table += "<tr><td>Concluído em:</td><td>" + data['meta'][4] + "</td></tr>";
+                table += "<tr><td>Status:</td><td>" + data['meta'][5] + "</td></tr>";
+                table += "</table></div>";
+                table += "<h4>Configurações Gerais</h4>";
+                table += "<div class='sf-table-shell'><table class='table table-striped' style='table-layout: fixed'>";
+                table += "<thead><tr><th>Opção</th><th>Valor</th></tr></thead><tbody>";
+                for (var key in data['config']) {
+                    if (key.indexOf(":") > 0) {
+                        continue;
+                    }
+                    table += "<tr><td width=100%>" + data['configdesc'][key] + "</td><td>" + data['config'][key] + "</td></tr>";
+                }
+                table += "</table></div>";
+                table += "<h4>Configurações dos Módulos</h4>";
+                table += "<div class='table-responsive sf-table-shell'><table class='table table-striped' style='table-layout: fixed'>";
+                table += "<thead><tr><th>Módulo</th> <th>Opção</th> <th>Valor</th></tr></thead><tbody>";
+                keys = [];
+                for (var key in data['config']) {
+                    keys.push(key);
+                }
+                keys_s = keys.sort();
+
+                for (var i = 0; i < keys_s.length; i++) {
+                    key = keys_s[i];
+                    if (key.indexOf(":") > 0) {
+                        bits = key.split(":");
+                        table += "<tr><td>" + bits[0] + "</td><td>" + data['configdesc'][key] + "</td><td>" + data['config'][key] + "</td></tr>";
+                    }
+                }
+                table += "</table></div></div>";
+
+                $("#loader").fadeOut(500);
+                $("#mainbody").append(table);
+            });
+        }
+
+        if ("${status}" == "CREATED" || "${status}" == "RUNNING" || "${status}" == "STARTING" || "${status}" == "STARTED" || "${status}" == "UNKNOWN" || "${status}" == "INITIALIZING") {
+            scanSummaryView("${id}");
+        } else {
+            browseEventList("${id}");
+        }
+
+        var refreshSummaryInterval;
+
+        refreshSummary = function() {
+            var status = document.getElementById("scanstatusbadge").innerHTML;
+
+            if (status == "ERROR-FAILED" || status == "FINISHED" || status == "ABORTED") {
+                sf.log("Scan is " + status);
+                clearInterval(refreshSummaryInterval);
+                return;
+            }
+
+            sf.log("A varredura está em " + status + ". Atualizando o resumo ...");
+
+            for (var i = 0; i < dataloaders.length; i++) {
+                if (!loadersrunning) {
+                    loadersrunning = true;
+                    dataloaders[i]();
+                    loadersrunning = false;
+                }
+            }
+        }
+
+        refreshSummaryInterval = setInterval(refreshSummary, 5000);
+
+    </script>
+<iframe class="hidden" id='exportframe'></iframe>
+</div>
+<%include file="FOOTER.tmpl"/>

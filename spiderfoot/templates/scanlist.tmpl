@@ -1,0 +1,45 @@
+<%include file="HEADER.tmpl"/>
+    <h2>Varreduras &nbsp;<img id="loader" src="${docroot}/static/img/loader.gif"></h2>
+<div id="scancontent">
+% if newscan:
+<div class="alert alert-success">
+ <button type="button" class="close" data-dismiss="alert">&times;</button>
+ <h4>Sucesso!</h4>
+ A varredura '${newscan}' foi iniciada com sucesso. Recarregue esta página para ver o status atualizado.
+</div>
+% endif
+% if rerunscans:
+<div class="alert alert-success">
+ <button type="button" class="close" data-dismiss="alert">&times;</button>
+ <h4>Sucesso!</h4>
+ As varreduras foram reiniciadas com sucesso como instâncias separadas. Recarregue esta página para ver o status atualizado.
+</div>
+% endif
+% if stoppedscan and len(errors) == 0:
+<div class="alert alert-warning">
+ <button type="button" class="close" data-dismiss="alert">&times;</button>
+ <h4>Varredura abortada.</h4>
+ Aguarde um ou dois minutos para que a varredura seja encerrada corretamente.
+</div>
+% endif
+
+% if stoppedscan and len(errors) > 0:
+<div class="alert alert-warning">
+ <button type="button" class="close" data-dismiss="alert">&times;</button>
+ <h4>Erro</h4>
+ Algumas ou todas as varreduras não puderam ser abortadas:<br>
+<ul>
+    % for err in errors:
+        <li>${err}</li>
+    % endfor
+</ul>
+</div>
+
+% endif
+
+<script type='text/javascript' src="${docroot}/static/js/spiderfoot.scanlist.js"></script>
+</div>
+
+<iframe class='hidden' id='exportframe'></iframe>
+
+<%include file="FOOTER.tmpl"/>
