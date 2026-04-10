@@ -70,6 +70,19 @@ def main() -> None:
         '_socks3port': '',
         '_socks4user': '',
         '_socks5pwd': '',
+        '_ai_enabled': True,
+        '_ai_ollama_enabled': True,
+        '_ai_ollama_base_url': 'http://127.0.0.1:11434',
+        '_ai_ollama_timeout_seconds': 180,
+        '_ai_ollama_chat_model': '',
+        '_ai_ollama_embedding_model': '',
+        '_ai_local_models_path': f"{SpiderFootHelpers.dataPath()}/ai",
+        '_ai_learning_enabled': True,
+        '_ai_auto_triage': True,
+        '_ai_auto_prioritization': True,
+        '_ai_auto_verdict_suggestions': True,
+        '_ai_retrain_interval_hours': 24,
+        '_ai_max_findings_per_analysis': 250,
     }
 
     sfOptdescs = {
@@ -86,6 +99,19 @@ def main() -> None:
         '_socks3port': 'SOCKS Server TCP Port. Usually 1080 for 4/5, 8080 for HTTP and 9050 for TOR.',
         '_socks4user': 'SOCKS Username. Valid only for SOCKS4 and SOCKS5 servers.',
         '_socks5pwd': "SOCKS Password. Valid only for SOCKS5 servers.",
+        '_ai_enabled': "Enable the local AI orchestration layer for triage, ranking, scan guidance and assisted conclusions.",
+        '_ai_ollama_enabled': "Use a local Ollama server for LLM tasks such as summarisation, pivot suggestions and assisted verdict generation.",
+        '_ai_ollama_base_url': "Base URL for the local Ollama server. Example: http://127.0.0.1:11434",
+        '_ai_ollama_timeout_seconds': "Timeout in seconds for local Ollama requests. Increase this for larger models or slower local inference.",
+        '_ai_ollama_chat_model': "Default Ollama chat model for analysis, summaries and investigative assistance.",
+        '_ai_ollama_embedding_model': "Default Ollama embedding model for similarity, clustering and pivot recommendation workflows.",
+        '_ai_local_models_path': "Directory used to store local AI artefacts such as trained models, vector indexes and learned memory.",
+        '_ai_learning_enabled': "Allow the platform to learn from analyst feedback, findings triage, validation results and final verdicts.",
+        '_ai_auto_triage': "Automatically generate AI-assisted finding triage suggestions during analysis.",
+        '_ai_auto_prioritization': "Automatically rank findings and next steps based on local scoring and learned history.",
+        '_ai_auto_verdict_suggestions': "Generate assisted final verdict suggestions using local models and evidence context.",
+        '_ai_retrain_interval_hours': "How often local machine learning models should be retrained from accumulated analyst feedback.",
+        '_ai_max_findings_per_analysis': "Maximum number of findings to include in a single AI-assisted analysis context.",
         '_modulesenabled': "Modules enabled for the scan."  # This is a hack to get a description for an option not actually available.
     }
 

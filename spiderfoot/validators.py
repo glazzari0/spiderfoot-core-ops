@@ -155,10 +155,11 @@ class FindingValidatorEngine:
         }
 
     def _extract_target(self, event_data):
-        match = re.search(r"https?://[^\s>]+", event_data, re.IGNORECASE)
+        cleaned = re.sub(r"</?sfurl>", "", event_data or "", flags=re.IGNORECASE).strip()
+        match = re.search(r"https?://[^\s>]+", cleaned, re.IGNORECASE)
         if match:
-            return match.group(0)
-        return event_data.split()[0]
+            return match.group(0).rstrip(".,);]'\">")
+        return cleaned.split()[0].rstrip(".,);]'\">") if cleaned.split() else ""
 
     def _validate_ip(self, event_type, event_data):
         open_ports = self._tcp_probe(event_data, [21, 22, 25, 53, 80, 110, 143, 443, 445, 8080, 8443])

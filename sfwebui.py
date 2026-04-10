@@ -17,8 +17,12 @@ import logging
 import multiprocessing as mp
 import random
 import re
+import socket
+import ssl
 import string
 import time
+import urllib.parse
+import urllib.request
 from copy import deepcopy
 from io import BytesIO, StringIO
 from operator import itemgetter
@@ -41,6 +45,8 @@ from sfscan import startSpiderFootScanner
 from spiderfoot import SpiderFootDb
 from spiderfoot import SpiderFootHelpers
 from spiderfoot import __version__
+from spiderfoot.ai import FindingAiAssistant
+from spiderfoot.ai.ollama_client import OllamaClient
 from spiderfoot.geolite import GeoLiteWorkspace
 from spiderfoot.logger import logListenerSetup, logWorkerSetup
 from spiderfoot.validators import FindingValidatorEngine
@@ -89,6 +95,7 @@ class SpiderFootWebUi:
         self.config = sf.configUnserialize(dbh.configGet(), self.defaultConfig)
         self.geolite_workspace = GeoLiteWorkspace(Path(__file__).resolve().parent / "Geolite")
         self.finding_validator_engine = FindingValidatorEngine()
+        self.finding_ai_assistant = FindingAiAssistant(self.config)
 
         # Set up logging
         if loggingQueue is None:
@@ -413,6 +420,40 @@ class SpiderFootWebUi:
                 return quoted_target, target_type
 
         return normalized_target, None
+
+    def _load_finding_bundle(self: 'SpiderFootWebUi', id: str, resulthash: str) -> dict:
+        dbh = SpiderFootDb(self.config)
+        rows = dbh.scanElementSourcesDirect(id, [resulthash])
+        if not rows:
+            raise ValueError("Achado não encontrado.")
+
+        row = rows[0]
+        finding_data = {
+            "generated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row[0])),
+            "data": row[1],
+            "source_data": row[2],
+            "module": row[3],
+            "event_type": row[4],
+            "confidence": row[5],
+            "visibility": row[6],
+            "risk": row[7],
+            "hash": row[8],
+            "source_hash": row[9],
+            "event_label": row[10],
+            "entity_type": row[11],
+            "false_positive": row[13]
+        }
+        state = dbh.findingStateGet(id, resulthash)
+        evidence = dbh.findingEvidenceList(id, resulthash)
+        validations = dbh.validationRunList(id, resulthash)
+
+        return {
+            "dbh": dbh,
+            "finding": finding_data,
+            "state": state,
+            "evidence_rows": evidence,
+            "validation_rows": validations,
+        }
 
     def scan_presets(self: 'SpiderFootWebUi') -> list:
         """Return opinionated scan presets for common investigation workflows."""
@@ -1507,6 +1548,50 @@ class SpiderFootWebUi:
                             updated=updated, selected_module=module, docroot=self.docroot)
 
     @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def aiollamamodels(self: 'SpiderFootWebUi', base_url: str = None) -> dict:
+        """Validate Ollama connectivity and list available models."""
+        target_url = (base_url or self.config.get("_ai_ollama_base_url") or "").strip()
+        if not target_url:
+            return self.jsonify_error('400', "Informe a URL do servidor Ollama.")
+
+        try:
+            timeout_seconds = self.config.get("_ai_ollama_timeout_seconds", 180)
+            try:
+                timeout_seconds = float(timeout_seconds)
+            except (TypeError, ValueError):
+                timeout_seconds = 180.0
+
+            client = OllamaClient(target_url, timeout=min(timeout_seconds, 30.0))
+            raw_models = client.list_models()
+            models = []
+            chat_models = []
+            embedding_models = []
+
+            for item in raw_models:
+                name = item.get("model") or item.get("name") or ""
+                if not name:
+                    continue
+                models.append(name)
+                lowered = name.lower()
+                if any(token in lowered for token in ["embed", "embedding", "bge", "e5", "nomic"]):
+                    embedding_models.append(name)
+                else:
+                    chat_models.append(name)
+
+            return {
+                "status": "SUCCESS",
+                "base_url": target_url,
+                "models": sorted(models),
+                "chat_models": sorted(chat_models),
+                "embedding_models": sorted(embedding_models),
+                "message": f"Conexão com Ollama validada com sucesso. {len(models)} modelo(s) encontrado(s)."
+            }
+        except Exception as e:
+            self.log.error(f"Falha ao listar modelos do Ollama em {target_url}: {e}")
+            return self.jsonify_error('500', f"Falha ao consultar o Ollama: {e}")
+
+    @cherrypy.expose
     def optsexport(self: 'SpiderFootWebUi', pattern: str = None) -> str:
         """Export configuration.
 
@@ -1691,6 +1776,7 @@ class SpiderFootWebUi:
             # the current system config.
             sf = SpiderFoot(self.config)
             self.config = sf.configUnserialize(cleanopts, currentopts)
+            self.finding_ai_assistant = FindingAiAssistant(self.config)
             dbh.configSet(sf.configSerialize(self.config))
         except Exception as e:
             return json.dumps(["ERROR", f"Processing one or more of your inputs failed: {e}"]).encode('utf-8')
@@ -1707,6 +1793,7 @@ class SpiderFootWebUi:
             dbh = SpiderFootDb(self.config)
             dbh.configClear()  # Clear it in the DB
             self.config = deepcopy(self.defaultConfig)  # Clear in memory
+            self.finding_ai_assistant = FindingAiAssistant(self.config)
         except Exception:
             return False
 
@@ -2481,30 +2568,12 @@ class SpiderFootWebUi:
         if not id or not resulthash:
             return self.jsonify_error('400', "Parâmetros obrigatórios ausentes.")
 
-        dbh = SpiderFootDb(self.config)
-        finding_data = None
         try:
-            rows = dbh.scanElementSourcesDirect(id, [resulthash])
-            if rows:
-                row = rows[0]
-                finding_data = {
-                    "generated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row[0])),
-                    "data": row[1],
-                    "source_data": row[2],
-                    "module": row[3],
-                    "event_type": row[4],
-                    "confidence": row[5],
-                    "visibility": row[6],
-                    "risk": row[7],
-                    "hash": row[8],
-                    "source_hash": row[9],
-                    "event_label": row[10],
-                    "entity_type": row[11],
-                    "false_positive": row[13]
-                }
-            state = dbh.findingStateGet(id, resulthash)
-            evidence = dbh.findingEvidenceList(id, resulthash)
-            validations = dbh.validationRunList(id, resulthash)
+            bundle = self._load_finding_bundle(id, resulthash)
+            finding_data = bundle["finding"]
+            state = bundle["state"]
+            evidence = bundle["evidence_rows"]
+            validations = bundle["validation_rows"]
         except Exception as e:
             return self.jsonify_error('500', f"Erro ao carregar o achado: {e}")
 
@@ -2536,6 +2605,17 @@ class SpiderFootWebUi:
                 "relevance": self.finding_relevance_labels(),
                 "exploitability": self.finding_exploitability_labels(),
                 "analyst_verdict": self.analyst_verdict_labels()
+            },
+            "ai": {
+                "enabled": bool(self.config.get("_ai_enabled")),
+                "ollama_enabled": bool(self.config.get("_ai_ollama_enabled")),
+                "configured": bool(
+                    self.config.get("_ai_enabled")
+                    and self.config.get("_ai_ollama_enabled")
+                    and self.config.get("_ai_ollama_base_url")
+                    and self.config.get("_ai_ollama_chat_model")
+                ),
+                "model": self.config.get("_ai_ollama_chat_model", ""),
             }
         }
 
@@ -2568,6 +2648,21 @@ class SpiderFootWebUi:
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
+    def findingevidenceupdate(self: 'SpiderFootWebUi', id: str, resulthash: str, evidence_id: str, evidence_type: str, title: str, content: str) -> list:
+        if not id or not resulthash or not evidence_id or not title or not content:
+            return ["ERROR", "Preencha os campos obrigatórios da evidência."]
+
+        dbh = SpiderFootDb(self.config)
+        try:
+            updated = dbh.findingEvidenceUpdate(evidence_id, id, resulthash, evidence_type or "nota", title, content)
+            if not updated:
+                return ["ERROR", "Evidência não encontrada para atualização."]
+        except Exception as e:
+            return ["ERROR", f"Falha ao atualizar evidência: {e}"]
+        return ["SUCCESS", "Evidência atualizada com sucesso."]
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
     def findingvalidate(self: 'SpiderFootWebUi', id: str, resulthash: str) -> list:
         if not id or not resulthash:
             return ["ERROR", "Parâmetros obrigatórios ausentes."]
@@ -2584,6 +2679,87 @@ class SpiderFootWebUi:
             return ["ERROR", f"Falha ao validar achado: {e}"]
 
         return ["SUCCESS", validation["summary"]]
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def findingaiassist(self: 'SpiderFootWebUi', id: str, resulthash: str, save_evidence: str = "1") -> dict:
+        if not id or not resulthash:
+            return self.jsonify_error('400', "Parâmetros obrigatórios ausentes.")
+
+        try:
+            self.log.info(f"Executando análise assistida por IA para o achado {resulthash} da varredura {id}.")
+            self.log.info(
+                "Ollama configurado para análise assistida: url=%s model=%s",
+                self.config.get("_ai_ollama_base_url", ""),
+                self.config.get("_ai_ollama_chat_model", "")
+            )
+            bundle = self._load_finding_bundle(id, resulthash)
+            labels = {
+                "triage_status": self.finding_status_labels(),
+                "relevance": self.finding_relevance_labels(),
+                "exploitability": self.finding_exploitability_labels(),
+                "analyst_verdict": self.analyst_verdict_labels()
+            }
+            analysis = self.finding_ai_assistant.analyze_finding(
+                bundle["finding"],
+                bundle["state"],
+                [
+                    {
+                        "validator": row[1],
+                        "status": row[2],
+                        "summary": row[3],
+                        "details": row[4],
+                    } for row in bundle["validation_rows"]
+                ],
+                [
+                    {
+                        "evidence_type": row[1],
+                        "title": row[2],
+                        "content": row[3],
+                    } for row in bundle["evidence_rows"]
+                ],
+                labels,
+            )
+
+            saved = False
+            if str(save_evidence).lower() in ["1", "true", "yes", "on"]:
+                evidence_body = (
+                    f"Modelo solicitado: {analysis.get('requested_model', '')}\n"
+                    f"Modelo informado pelo Ollama: {analysis.get('resolved_model', analysis.get('model', ''))}\n\n"
+                    f"Resumo: {analysis['summary']}\n"
+                    f"Triagem sugerida: {analysis['triage_status_suggestion']}\n"
+                    f"Relevância sugerida: {analysis['relevance_suggestion']}\n"
+                    f"Explorabilidade sugerida: {analysis['exploitability_suggestion']}\n"
+                    f"Veredito sugerido: {analysis['analyst_verdict_suggestion']}\n"
+                    f"Confiança: {analysis['confidence']}\n\n"
+                    f"Racional:\n- " + "\n- ".join(analysis.get("reasoning", []) or ["Sem racional detalhado."]) + "\n\n"
+                    f"Lacunas de evidência:\n- " + "\n- ".join(analysis.get("evidence_gaps", []) or ["Nenhuma lacuna específica destacada."]) + "\n\n"
+                    f"Próximos passos:\n- " + "\n- ".join(analysis.get("next_steps", []) or ["Sem próximos passos sugeridos."]) + "\n\n"
+                    f"Rascunho de nota:\n{analysis.get('operator_note_draft', '')}"
+                )
+                bundle["dbh"].findingEvidenceAdd(
+                    id,
+                    resulthash,
+                    "analise_ia",
+                    f"Análise assistida por IA ({analysis.get('resolved_model', analysis.get('model', 'ollama'))})",
+                    evidence_body
+                )
+                saved = True
+
+            self.log.info(
+                "Análise assistida por IA concluída para %s usando requested_model=%s resolved_model=%s.",
+                resulthash,
+                analysis.get("requested_model", ""),
+                analysis.get("resolved_model", analysis.get("model", "")),
+            )
+            return {
+                "status": "SUCCESS",
+                "analysis": analysis,
+                "saved_as_evidence": saved,
+            }
+        except Exception as e:
+            self.log.error(f"Falha na análise assistida por IA para {resulthash}: {e}")
+            return self.jsonify_error('500', f"Falha na análise assistida por IA: {e}")
 
     @cherrypy.expose
     @cherrypy.tools.json_out()

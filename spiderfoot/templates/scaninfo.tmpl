@@ -91,6 +91,9 @@
         var sharedSigma = "";
         var graphLabelMode = "relevant";
         var currentFindingHash = "";
+        var currentFindingRowSelector = "";
+        var currentAiSuggestion = null;
+        var currentEvidenceId = "";
         var findingOptionLabels = {
             triage_status: {"novo":"Novo","em_triagem":"Em triagem","relevante":"Relevante","descartado":"Descartado","falso_positivo":"Falso positivo","confirmado":"Confirmado"},
             relevance: {"pendente":"Pendente","baixa":"Baixa","media":"Média","alta":"Alta","critica":"Crítica"},
@@ -222,9 +225,27 @@
             });
         }
 
-        function openFindingWorkbench(instanceId, resultHash) {
+        function openFindingWorkbench(instanceId, resultHash, triggerEl) {
+            var nextRowSelector = "#finding-row-" + resultHash;
+            if (triggerEl) {
+                currentFindingRowSelector = nextRowSelector;
+            }
+
+            if (currentFindingHash === resultHash && triggerEl && $("#finding-inline-row").is(":visible")) {
+                $("#finding-inline-row").hide();
+                currentFindingHash = "";
+                currentAiSuggestion = null;
+                return;
+            }
+
+            if (currentFindingHash && currentFindingHash != resultHash) {
+                currentAiSuggestion = null;
+            }
             currentFindingHash = resultHash;
-            $("#finding-workbench").removeClass("hidden");
+            if ($(currentFindingRowSelector).length > 0) {
+                $("#finding-inline-row").insertAfter($(currentFindingRowSelector));
+            }
+            $("#finding-inline-row").show();
             $("#finding-workbench-loading").show();
             $("#finding-workbench-content").hide();
             sf.fetchData('${docroot}/findingdetail', {'id': instanceId, 'resulthash': resultHash}, function(data) {
@@ -251,10 +272,25 @@
                 $("#finding-exploitability").html(renderFindingSelectOptions("exploitability", state.exploitability));
                 $("#finding-analyst-verdict").html(renderFindingSelectOptions("analyst_verdict", state.analyst_verdict));
                 $("#finding-notes").val(state.notes || "");
+                currentEvidenceId = "";
+                $("#finding-evidence-save-label").text("Adicionar evidência");
+                $("#finding-evidence-type").val("nota");
+                $("#finding-evidence-title").val("");
+                $("#finding-evidence-content").val("");
+                $("#finding-ai-config-status").html(
+                    data.ai && data.ai.configured
+                        ? "<span class='text-success'>Ollama pronto: " + escapeHtmlText(data.ai.model || "modelo não identificado") + "</span>"
+                        : "<span class='text-warning'>Configure a aba IA / Ollama para usar a análise assistida.</span>"
+                );
+                if (currentAiSuggestion) {
+                    renderFindingAiAnalysis(currentAiSuggestion);
+                } else {
+                    $("#finding-ai-analysis").html("<div class='text-muted'>Execute a análise assistida para receber uma sugestão de triagem, relevância, explorabilidade, veredito e próximos passos.</div>");
+                }
 
                 var evidenceHtml = data.evidence.length
                     ? data.evidence.map(function(item) {
-                        return "<div class='sf-inline-card'><div><b>" + escapeHtmlText(item.title) + "</b> <span class='text-muted'>(" + escapeHtmlText(item.evidence_type) + ")</span></div><div class='font-size-90-percent'>" + escapeHtmlText(item.content) + "</div><div class='text-muted font-size-90-percent'>" + item.created + "</div></div>";
+                        return "<div class='sf-inline-card'><div><b>" + escapeHtmlText(item.title) + "</b> <span class='text-muted'>(" + escapeHtmlText(item.evidence_type) + ")</span> <button class='btn btn-xs btn-default pull-right' onClick='loadEvidenceForEdit(" + JSON.stringify(item.id) + ", " + JSON.stringify(item.evidence_type) + ", " + JSON.stringify(item.title) + ", " + JSON.stringify(item.content) + ")'>Editar</button></div><div class='font-size-90-percent'>" + escapeHtmlText(item.content) + "</div><div class='text-muted font-size-90-percent'>" + item.created + "</div></div>";
                       }).join("")
                     : "<div class='text-muted'>Nenhuma evidência registrada para este achado.</div>";
                 $("#finding-evidence-list").html(evidenceHtml);
@@ -297,15 +333,23 @@
                 alertify.error("Selecione um achado antes de anexar evidência.");
                 return;
             }
-            sf.fetchData('${docroot}/findingevidenceadd', {
+            var targetUrl = currentEvidenceId ? '${docroot}/findingevidenceupdate' : '${docroot}/findingevidenceadd';
+            var payload = {
                 'id': instanceId,
                 'resulthash': currentFindingHash,
                 'evidence_type': $("#finding-evidence-type").val(),
                 'title': $("#finding-evidence-title").val(),
                 'content': $("#finding-evidence-content").val()
-            }, function(ret) {
+            };
+            if (currentEvidenceId) {
+                payload['evidence_id'] = currentEvidenceId;
+            }
+            sf.fetchData(targetUrl, payload, function(ret) {
                 if (ret[0] == "SUCCESS") {
                     alertify.success(ret[1]);
+                    currentEvidenceId = "";
+                    $("#finding-evidence-save-label").text("Adicionar evidência");
+                    $("#finding-evidence-type").val("nota");
                     $("#finding-evidence-title").val("");
                     $("#finding-evidence-content").val("");
                     openFindingWorkbench(instanceId, currentFindingHash);
@@ -314,6 +358,14 @@
                     alertify.error(ret[1]);
                 }
             });
+        }
+
+        function loadEvidenceForEdit(evidenceId, evidenceType, title, content) {
+            currentEvidenceId = evidenceId;
+            $("#finding-evidence-save-label").text("Salvar evidência");
+            $("#finding-evidence-type").val(evidenceType);
+            $("#finding-evidence-title").val(title);
+            $("#finding-evidence-content").val(content);
         }
 
         function validateFinding(instanceId) {
@@ -330,6 +382,114 @@
                     alertify.error(ret[1]);
                 }
             });
+        }
+
+        function renderFindingAiAnalysis(analysis) {
+            if (!analysis) {
+                $("#finding-ai-analysis").html("<div class='text-muted'>Nenhuma análise assistida disponível.</div>");
+                return;
+            }
+
+            var reasoning = (analysis.reasoning || []).length
+                ? "<ul><li>" + analysis.reasoning.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem racional detalhado.</div>";
+            var gaps = (analysis.evidence_gaps || []).length
+                ? "<ul><li>" + analysis.evidence_gaps.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Nenhuma lacuna específica apontada.</div>";
+            var nextSteps = (analysis.next_steps || []).length
+                ? "<ul><li>" + analysis.next_steps.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem próximos passos sugeridos.</div>";
+
+            var html = "";
+            html += "<div class='sf-inline-card'>";
+            html += "<div><b>Resumo</b> <span class='text-muted'>(solicitado: " + escapeHtmlText(analysis.requested_model || analysis.model || "ollama") + ", retornado: " + escapeHtmlText(analysis.resolved_model || analysis.model || "ollama") + ", confiança " + escapeHtmlText(analysis.confidence || 0) + "%)</span></div>";
+            html += "<div style='margin-top: 6px;'>" + escapeHtmlText(analysis.summary || "") + "</div>";
+            html += "<div class='row' style='margin-top: 10px;'>";
+            html += "<div class='col-sm-6'><b>Triagem sugerida:</b> " + escapeHtmlText((findingOptionLabels.triage_status || {})[analysis.triage_status_suggestion] || analysis.triage_status_suggestion || "-") + "</div>";
+            html += "<div class='col-sm-6'><b>Relevância sugerida:</b> " + escapeHtmlText((findingOptionLabels.relevance || {})[analysis.relevance_suggestion] || analysis.relevance_suggestion || "-") + "</div>";
+            html += "</div>";
+            html += "<div class='row' style='margin-top: 6px;'>";
+            html += "<div class='col-sm-6'><b>Explorabilidade sugerida:</b> " + escapeHtmlText((findingOptionLabels.exploitability || {})[analysis.exploitability_suggestion] || analysis.exploitability_suggestion || "-") + "</div>";
+            html += "<div class='col-sm-6'><b>Veredito sugerido:</b> " + escapeHtmlText((findingOptionLabels.analyst_verdict || {})[analysis.analyst_verdict_suggestion] || analysis.analyst_verdict_suggestion || "-") + "</div>";
+            html += "</div>";
+            html += "<div style='margin-top: 10px;'><b>Racional</b>" + reasoning + "</div>";
+            html += "<div style='margin-top: 10px;'><b>Lacunas de evidência</b>" + gaps + "</div>";
+            html += "<div style='margin-top: 10px;'><b>Próximos passos</b>" + nextSteps + "</div>";
+            html += "<div style='margin-top: 10px;'><b>Evidência sugerida</b><div><span class='text-muted'>Tipo:</span> " + escapeHtmlText(analysis.suggested_evidence_type || "nota") + "</div><div><span class='text-muted'>Título:</span> " + escapeHtmlText(analysis.suggested_evidence_title || "") + "</div><pre class='table-border-bg-inherit' style='white-space: pre-wrap; margin-top: 6px;'>" + escapeHtmlText(analysis.suggested_evidence_content || "") + "</pre></div>";
+            html += "<div style='margin-top: 10px;'><b>Rascunho de nota</b><pre class='table-border-bg-inherit' style='white-space: pre-wrap; margin-top: 6px;'>" + escapeHtmlText(analysis.operator_note_draft || "") + "</pre></div>";
+            html += "</div>";
+            $("#finding-ai-analysis").html(html);
+        }
+
+        function requestFindingAiAssist(instanceId) {
+            if (!currentFindingHash) {
+                alertify.error("Selecione um achado antes de usar a análise assistida.");
+                return;
+            }
+            sf.log("Solicitando análise assistida por IA para o achado " + currentFindingHash + " da varredura " + instanceId);
+            $("#finding-ai-analysis").html("<div class='text-muted'>Consultando o Ollama local e montando a análise assistida...</div>");
+            $.ajax({
+                type: "POST",
+                url: '${docroot}/findingaiassist',
+                data: {'id': instanceId, 'resulthash': currentFindingHash, 'save_evidence': 1},
+                cache: false,
+                dataType: "json"
+            }).done(function(ret) {
+                if (!ret || ret.error || ret.status != "SUCCESS") {
+                    var message = (ret && ret.error && ret.error.message) || "Falha ao executar a análise assistida.";
+                    $("#finding-ai-analysis").html("<div class='alert alert-danger'>" + escapeHtmlText(message) + "</div>");
+                    alertify.error(message);
+                    sf.log("Falha na análise assistida por IA: " + message);
+                    return;
+                }
+                currentAiSuggestion = ret.analysis || null;
+                renderFindingAiAnalysis(currentAiSuggestion);
+                if (ret.saved_as_evidence) {
+                    alertify.success("Análise assistida concluída e registrada como evidência.");
+                } else {
+                    alertify.success("Análise assistida concluída.");
+                }
+                sf.log("Análise assistida por IA concluída com sucesso para " + currentFindingHash);
+                openFindingWorkbench(instanceId, currentFindingHash);
+                refreshOperationalSummary(instanceId);
+            }).fail(function(hr, status) {
+                var message = "Falha ao executar a análise assistida.";
+                if (hr.responseJSON && hr.responseJSON.error && hr.responseJSON.error.message) {
+                    message = hr.responseJSON.error.message;
+                } else if (hr.responseText) {
+                    message = hr.responseText;
+                } else if (status) {
+                    message = status;
+                }
+                $("#finding-ai-analysis").html("<div class='alert alert-danger'>" + escapeHtmlText(message) + "</div>");
+                alertify.error(message);
+                sf.log("Erro HTTP na análise assistida por IA: " + message);
+            });
+        }
+
+        function applyAiSuggestions() {
+            if (!currentAiSuggestion) {
+                alertify.error("Execute primeiro a análise assistida por IA.");
+                return;
+            }
+            $("#finding-triage-status").val(currentAiSuggestion.triage_status_suggestion || "em_triagem");
+            $("#finding-relevance").val(currentAiSuggestion.relevance_suggestion || "pendente");
+            $("#finding-exploitability").val(currentAiSuggestion.exploitability_suggestion || "nao_avaliado");
+            $("#finding-analyst-verdict").val(currentAiSuggestion.analyst_verdict_suggestion || "em_analise");
+
+            if ($("#finding-notes").val().trim() === "" && currentAiSuggestion.operator_note_draft) {
+                $("#finding-notes").val(currentAiSuggestion.operator_note_draft);
+            }
+            if ($("#finding-evidence-type").val() === "nota" && currentAiSuggestion.suggested_evidence_type) {
+                $("#finding-evidence-type").val(currentAiSuggestion.suggested_evidence_type);
+            }
+            if ($("#finding-evidence-title").val().trim() === "" && currentAiSuggestion.suggested_evidence_title) {
+                $("#finding-evidence-title").val(currentAiSuggestion.suggested_evidence_title);
+            }
+            if ($("#finding-evidence-content").val().trim() === "" && currentAiSuggestion.suggested_evidence_content) {
+                $("#finding-evidence-content").val(currentAiSuggestion.suggested_evidence_content);
+            }
+            alertify.success("Sugestões da IA aplicadas aos campos. Revise e salve quando quiser.");
         }
 
         function navTo(target) {
@@ -1093,7 +1253,22 @@
                             }
                             crumbs += "</ul>";
 
-                            var workbench = "<div id='finding-workbench' class='panel panel-default hidden' style='margin-bottom: 16px;'>";
+                            var generalOpsPanel = "<div id='scan-browse-overview' class='panel panel-default' style='margin-bottom: 16px;'>";
+                            generalOpsPanel += "<div class='panel-heading'><i class='glyphicon glyphicon-check'></i>&nbsp;&nbsp;Análise Geral da Varredura</div><div class='panel-body'>";
+                            generalOpsPanel += "<div class='row'>";
+                            generalOpsPanel += "<div class='col-sm-4'><b>Achados por triagem</b><div id='ops-triage-breakdown' class='font-size-90-percent' style='margin-top: 8px;'>Carregando...</div></div>";
+                            generalOpsPanel += "<div class='col-sm-4'><b>Explorabilidade</b><div id='ops-exploit-breakdown' class='font-size-90-percent' style='margin-top: 8px;'>Carregando...</div></div>";
+                            generalOpsPanel += "<div class='col-sm-2'><b>Evidências</b><div id='ops-evidence-count' style='font-size: 24px; margin-top: 8px;'>0</div></div>";
+                            generalOpsPanel += "<div class='col-sm-2'><b>Validações</b><div id='ops-validation-count' style='font-size: 24px; margin-top: 8px;'>0</div></div>";
+                            generalOpsPanel += "</div>";
+                            generalOpsPanel += "<div class='row' style='margin-top: 12px;'>";
+                            generalOpsPanel += "<div class='col-sm-4'><label>Veredito final do caso</label><select id='case-verdict' class='form-control'></select><div id='case-verdict-updated' class='text-muted font-size-90-percent' style='margin-top: 6px;'></div></div>";
+                            generalOpsPanel += "<div class='col-sm-6'><label>Conclusão resumida</label><textarea id='case-verdict-summary' class='form-control' rows='3' placeholder='Registre aqui o veredito final, impacto, validade e próximos passos.'></textarea></div>";
+                            generalOpsPanel += "<div class='col-sm-2'><label>&nbsp;</label><button class='btn btn-primary btn-block' onClick='saveCaseVerdict(\"${id}\")'>Salvar veredito</button></div>";
+                            generalOpsPanel += "</div>";
+                            generalOpsPanel += "</div></div>";
+
+                            var workbench = "<div id='finding-workbench' class='panel panel-default' style='margin: 8px 0 4px 0;'>";
                             workbench += "<div class='panel-heading'><i class='glyphicon glyphicon-briefcase'></i>&nbsp;&nbsp;Painel de Análise do Achado <span class='text-muted' id='finding-selected-hash'></span></div><div class='panel-body'>";
                             workbench += "<div id='finding-workbench-loading' class='text-muted'>Carregando achado selecionado...</div>";
                             workbench += "<div id='finding-workbench-content' style='display:none;'>";
@@ -1106,15 +1281,16 @@
                             workbench += "<div class='col-sm-6'><label>Veredito do achado</label><select id='finding-analyst-verdict' class='form-control'></select></div>";
                             workbench += "</div></div></div>";
                             workbench += "<div style='margin-top:12px;'><label>Notas do analista</label><textarea id='finding-notes' class='form-control' rows='3' placeholder='Registre contexto, descarte, relevância, hipótese ou conclusão técnica.'></textarea></div>";
-                            workbench += "<div class='btn-toolbar' style='margin-top:12px;'><div class='btn-group'><button class='btn btn-primary' onClick='saveFindingState(\"${id}\")'>Salvar classificação</button><button class='btn btn-warning' onClick='validateFinding(\"${id}\")'>Executar validação segura</button></div></div>";
+                            workbench += "<div class='btn-toolbar' style='margin-top:12px;'><div class='btn-group'><button class='btn btn-primary' onClick='saveFindingState(\"${id}\")'>Salvar classificação</button><button class='btn btn-warning' onClick='validateFinding(\"${id}\")'>Executar validação segura</button><button class='btn btn-info' onClick='requestFindingAiAssist(\"${id}\")'>Análise Assistida por IA</button><button class='btn btn-default' onClick='applyAiSuggestions()'>Usar sugestões</button></div></div>";
+                            workbench += "<div style='margin-top:12px;'><label>Assistente local</label><div id='finding-ai-config-status' class='font-size-90-percent text-muted'></div><div id='finding-ai-analysis' style='margin-top:8px;'></div></div>";
                             workbench += "<hr><div class='row'><div class='col-sm-4'><label>Tipo de evidência</label><select id='finding-evidence-type' class='form-control'><option value='nota'>Nota</option><option value='url'>URL</option><option value='evidencia_tecnica'>Evidência técnica</option><option value='ioc'>IOC</option><option value='impacto'>Impacto</option></select></div>";
                             workbench += "<div class='col-sm-8'><label>Título</label><input id='finding-evidence-title' class='form-control' type='text' placeholder='Ex.: Screenshot da exposição, resposta HTTP 200, banner do serviço'></div></div>";
                             workbench += "<div style='margin-top:8px;'><label>Conteúdo</label><textarea id='finding-evidence-content' class='form-control' rows='3' placeholder='Cole aqui a evidência textual, URL, observação técnica, resposta resumida ou justificativa.'></textarea></div>";
-                            workbench += "<div style='margin-top:8px;'><button class='btn btn-default' onClick='addFindingEvidence(\"${id}\")'>Adicionar evidência</button></div>";
+                            workbench += "<div style='margin-top:8px;'><button class='btn btn-default' onClick='addFindingEvidence(\"${id}\")' id='finding-evidence-save-label'>Adicionar evidência</button></div>";
                             workbench += "<div class='row' style='margin-top:14px;'><div class='col-sm-6'><h4>Evidências</h4><div id='finding-evidence-list'></div></div><div class='col-sm-6'><h4>Validações</h4><div id='finding-validation-list'></div></div></div>";
                             workbench += "</div></div></div>";
 
-                            var table = "<table id='scansummary-content' class='table table-bordered table-striped small tablesorter'>";
+                            var table = "<table id='finding-list-table' class='table table-bordered table-striped small tablesorter'>";
                             table += "<thead><tr>";
                             table += "<th class='text-center'><input id='checkall' type='checkbox' onClick='switchSelectAll()'></th>";
                             table += "<th>Data Element</th></th>";
@@ -1128,7 +1304,7 @@
                                 if (filterFP && data[i][8] == "1") {
                                     continue;
                                 }
-                                table += "<tr>";
+                                table += "<tr id='finding-row-" + data[i][7] + "'>";
                                 table += "<td class='text-center'><input type='checkbox' id='cb_" + data[i][7] + "'>";
                                 if (data[i][8] == "1") {
                                     table += "<br /><i class='glyphicon glyphicon-ban-circle' class='vertical-align-bottom' />";
@@ -1142,13 +1318,15 @@
                                 table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][3];
                                 table += "</pre></td><td><pre class='table-border-bg-inherit'>" + data[i][0];
                                 table += "</pre></td>";
-                                table += "<td class='text-center'><button class='btn btn-xs btn-default' onClick='openFindingWorkbench(\"" + instanceId + "\",\"" + data[i][7] + "\")'><i class='glyphicon glyphicon-edit'></i></button></td>";
+                                table += "<td class='text-center'><button class='btn btn-xs btn-default' onClick='openFindingWorkbench(\"" + instanceId + "\",\"" + data[i][7] + "\", this)'><i class='glyphicon glyphicon-edit'></i></button></td>";
                                 table += "</tr>";
                             }
+                            table += "<tr id='finding-inline-row' style='display:none;'><td colspan='6'>" + workbench + "</td></tr>";
                             table += "</tbody></table>"
                             $("#loader").fadeOut(500);
-                            $("#mainbody").append(crumbs + workbench + table);
-                            $("#scansummary-content").tablesorter({ headers: { 0: { sorter: false }, 5: { sorter: false } } });
+                            $("#mainbody").append(crumbs + "<div id='scansummary-content'>" + generalOpsPanel + table + "</div>");
+                            refreshOperationalSummary(instanceId);
+                            $("#finding-list-table").tablesorter({ headers: { 0: { sorter: false }, 5: { sorter: false } } });
                             lastChecked = null;
                             var chkboxes = $('input[id*=cb_]');
                             chkboxes.click(function(e) {

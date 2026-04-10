@@ -559,6 +559,19 @@ class SpiderFootDb:
             except sqlite3.Error as e:
                 raise IOError("SQL error encountered when storing evidence") from e
 
+    def findingEvidenceUpdate(self, evidenceId: str, instanceId: str, resultHash: str, evidenceType: str, title: str, content: str) -> bool:
+        qry = "UPDATE tbl_scan_finding_evidence SET evidence_type = ?, title = ?, content = ? \
+            WHERE id = ? AND scan_instance_id = ? AND result_hash = ?"
+        qvars = [evidenceType, title, content, evidenceId, instanceId, resultHash]
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                self.conn.commit()
+                return self.dbh.rowcount > 0
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when updating evidence") from e
+
     def validationRunAdd(self, instanceId: str, resultHash: str, validator: str, status: str, summary: str, details: str) -> str:
         runId = str(uuid.uuid4())
         qry = "INSERT INTO tbl_scan_validation_run \

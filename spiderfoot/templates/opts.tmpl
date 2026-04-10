@@ -36,6 +36,7 @@ window.preselectedModule = "${selected_module}";
 <div class="sf-table-shell" style="padding: 12px;">
 <ul class="nav nav-pills nav-stacked">
 <li id='tab_global' class="active"><a href="#">Geral</a></li>
+<li id='tab_ai'><a href='#' onclick='switchTab("ai");'>IA / Ollama</a></li>
 % for mod in sorted(opts['__modules__'].keys()):
     <% keylist = dict((k, v) for k, v in opts['__modules__'][mod]['opts'].items() if not k.startswith('_')) %>
     % if len(keylist) > 0:
@@ -61,7 +62,7 @@ window.preselectedModule = "${selected_module}";
 <table class='table table-striped'>
 <thead><tr> <th>Opção</th> <th>Valor</th></tr></thead><tbody>
 % for opt in sorted(opts.keys()):
-    % if not opt.startswith("__"):
+    % if not opt.startswith("__") and not opt.startswith("_ai_"):
     <tr><td>${opts['__globaloptdescs__'].get(opt) or "Sem descrição disponível"}</td><td style='vertical-align: middle'>
         % if type(opts[opt]) is int:
         <div class='form-group'>
@@ -70,7 +71,11 @@ window.preselectedModule = "${selected_module}";
         % endif
         % if type(opts[opt]) is str:
         <div class='form-group'>
+            % if opt in ["_ai_ollama_chat_model", "_ai_ollama_embedding_model"]:
+            <input id='${opt}' list='ai-ollama-models' style='width: 500px' class='form-control' type=text value="${opts[opt]}">
+            % else:
             <input id='${opt}' style='width: 500px' class='form-control' type=text value="${opts[opt]}">
+            % endif
         </div>
         % endif
         % if type(opts[opt]) is bool:
@@ -105,6 +110,78 @@ window.preselectedModule = "${selected_module}";
 </tbody>
 </table>
 </div>
+</div>
+
+<div id='optsect_ai' class="tab-pane" style="display: none">
+<h4>IA / Ollama</h4>
+<div class="alert alert-info">
+ A camada de IA do SpiderFoot Core-Ops foi planejada para funcionar localmente. Use o Ollama como backend de LLM e embeddings
+ e mantenha os demais modelos como motores pr&oacute;prios da plataforma, como classificadores, rankeadores, detectores de mudan&ccedil;a
+ e aprendizado por feedback do analista.
+</div>
+<div class="sf-table-shell" style="margin-bottom: 18px;">
+<table class='table table-striped'>
+<tbody>
+<tr><td style="width: 220px;">LLM local</td><td>O Ollama pode ser usado para sumariza&ccedil;&atilde;o, correla&ccedil;&atilde;o assistida, sugest&atilde;o de piv&ocirc;s e vereditos assistidos.</td></tr>
+<tr><td>Modelos pr&oacute;prios</td><td>Os demais componentes podem evoluir como &aacute;rvores de decis&atilde;o, redes neurais, motores de ranking e detectores espec&iacute;ficos para cada tipo de caso.</td></tr>
+<tr><td>Aprendizado local</td><td>Classifica&ccedil;&otilde;es, valida&ccedil;&otilde;es e vereditos do analista podem alimentar o aperfei&ccedil;oamento dos modelos locais sem depender de servidores externos.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="sf-table-shell">
+<table class='table table-striped'>
+<thead><tr> <th>Op&ccedil;&atilde;o</th> <th>Valor</th></tr></thead><tbody>
+% for opt in sorted(opts.keys()):
+    % if opt.startswith("_ai_"):
+    <tr><td>${opts['__globaloptdescs__'].get(opt) or "Sem descri&ccedil;&atilde;o dispon&iacute;vel"}</td><td style='vertical-align: middle'>
+        % if type(opts[opt]) is int:
+        <div class='form-group'>
+            <input id='${opt}' class='form-control' type=text value="${opts[opt]}">
+        </div>
+        % endif
+        % if type(opts[opt]) is str:
+        <div class='form-group'>
+            <input id='${opt}' style='width: 500px' class='form-control' type=text value="${opts[opt]}">
+        </div>
+        % endif
+        % if type(opts[opt]) is bool:
+        <%
+            if opts[opt] == True:
+                seltrue = "selected"
+                selfalse = ""
+            else:
+                selfalse = "selected"
+                seltrue = ""
+        %>
+            <select id='${opt}' class='form-control'>
+                <option value=1 ${seltrue}>Verdadeiro</option>
+                <option value=0 ${selfalse}>Falso</option>
+            </select>
+        % endif
+        % if type(opts[opt]) is list and type(opts[opt][0]) is str:
+            <% expandedopt = ','.join(opts[opt]) %>
+            <div class='form-group'>
+                <input id='${opt}' style='width: 500px' class='form-control' type=text value="${expandedopt}">
+            </div>
+        % endif
+        % if type(opts[opt]) is list and type(opts[opt][0]) is int:
+            <% expandedopt = ','.join(str(x) for x in opts[opt]) %>
+            <div class='form-group'>
+                <input id='${opt}' class='form-control' type=text value="${expandedopt}">
+            </div>
+        % endif
+    </td></tr>
+    % endif
+% endfor
+</tbody>
+</table>
+</div>
+<div style="margin-top: 14px;">
+    <button id="btn-ai-test-ollama" class="btn btn-info">Validar conexão e listar modelos</button>
+    <span id="ai-ollama-status" class="text-muted" style="margin-left: 12px;">Use este teste para confirmar conectividade com o Ollama antes de rodar a análise assistida.</span>
+</div>
+<div id="ai-ollama-model-summary" class="font-size-90-percent text-muted" style="margin-top: 10px;"></div>
+<datalist id="ai-ollama-models"></datalist>
 </div>
 % for mod in sorted(opts['__modules__'].keys()):
     <%
