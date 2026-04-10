@@ -46,10 +46,6 @@ Principais customizações:
 
 ## Documentação
 
-A documentação detalhada desta versão está em:
-
-- [DOCUMENTACAO_SISTEMA_CUSTOMIZADO_PTBR.md](DOCUMENTACAO_SISTEMA_CUSTOMIZADO_PTBR.md)
-
 Esse documento cobre:
 
 - arquitetura do sistema
