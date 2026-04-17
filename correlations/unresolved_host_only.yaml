@@ -1,0 +1,26 @@
+id: unresolved_host_only
+version: 1
+meta:
+  name: Host discovered but unresolved
+  description: >
+    A host-like name was discovered in the scan results but only as an
+    unresolved hostname, with no corroborating resolved hostname event.
+
+    This can indicate stale infrastructure, typo-squats, hidden naming
+    conventions or assets that require manual validation.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: INTERNET_NAME_UNRESOLVED
+  - collect:
+      - method: exact
+        field: type
+        value: INTERNET_NAME
+aggregation:
+  field: data
+analysis:
+  - method: first_collection_only
+    field: data
+headline: "Host discovered but unresolved during validation: {data}"

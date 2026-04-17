@@ -48,6 +48,7 @@ class SpiderFootScanner():
     __moduleInstances = dict()
     __modconfig = dict()
     __scanName = None
+    __moduleTelemetry = None
 
     def __init__(self, scanName: str, scanId: str, targetValue: str, targetType: str, moduleList: list, globalOpts: dict, start: bool = True) -> None:
         """Initialize SpiderFootScanner object.
@@ -82,6 +83,7 @@ class SpiderFootScanner():
             raise ValueError("scanName value is blank")
 
         self.__scanName = scanName
+        self.__moduleTelemetry = dict()
 
         if not isinstance(scanId, str):
             raise TypeError(f"scanId is {type(scanId)}; expected str()")
@@ -257,6 +259,114 @@ class SpiderFootScanner():
         self.__status = status
         self.__dbh.scanInstanceSet(self.__scanId, started, ended, status)
 
+    def __initModuleTelemetry(self, modName: str) -> None:
+        self.__moduleTelemetry[modName] = {
+            "loaded": False,
+            "received_event_count": 0,
+            "produced_output_count": 0,
+            "errored": False,
+            "finished": False,
+            "last_state": "",
+        }
+
+    def __telemetryLog(self, modName: str, state: str, **kwargs) -> None:
+        parts = [f"module={modName}", f"state={state}"]
+        for key, value in kwargs.items():
+            parts.append(f"{key}={value}")
+        self.__sf.status("Module telemetry: " + " ".join(parts))
+
+    def __markModuleLoaded(self, modName: str) -> None:
+        if modName not in self.__moduleTelemetry:
+            self.__initModuleTelemetry(modName)
+        self.__moduleTelemetry[modName]["loaded"] = True
+        self.__moduleTelemetry[modName]["last_state"] = "loaded"
+        self.__telemetryLog(modName, "loaded")
+
+    def __markModuleReceivedEvent(self, modName: str, eventType: str) -> None:
+        stats = self.__moduleTelemetry.get(modName)
+        if stats is None:
+            self.__initModuleTelemetry(modName)
+            stats = self.__moduleTelemetry[modName]
+        stats["received_event_count"] += 1
+        if stats["last_state"] in ["", "loaded"]:
+            stats["last_state"] = "received_event"
+            self.__telemetryLog(modName, "received_event", event_type=eventType, received=stats["received_event_count"])
+
+    def __markModuleProducedOutput(self, modName: str, eventType: str) -> None:
+        stats = self.__moduleTelemetry.get(modName)
+        if stats is None:
+            self.__initModuleTelemetry(modName)
+            stats = self.__moduleTelemetry[modName]
+        stats["produced_output_count"] += 1
+        if stats["last_state"] != "produced_output":
+            stats["last_state"] = "produced_output"
+            self.__telemetryLog(modName, "produced_output", event_type=eventType, produced=stats["produced_output_count"])
+
+    def __markModuleErrored(self, modName: str) -> None:
+        stats = self.__moduleTelemetry.get(modName)
+        if stats is None:
+            self.__initModuleTelemetry(modName)
+            stats = self.__moduleTelemetry[modName]
+        if not stats["errored"]:
+            stats["errored"] = True
+            stats["last_state"] = "errored"
+            self.__telemetryLog(
+                modName,
+                "errored",
+                received=stats["received_event_count"],
+                produced=stats["produced_output_count"],
+            )
+
+    def __emitModuleTerminalTelemetry(self) -> None:
+        for modName in sorted(self.__moduleInstances.keys()):
+            stats = self.__moduleTelemetry.get(modName)
+            if stats is None:
+                self.__initModuleTelemetry(modName)
+                stats = self.__moduleTelemetry[modName]
+            if stats["finished"]:
+                continue
+
+            if stats["errored"]:
+                terminal_state = "errored"
+            elif stats["produced_output_count"] > 0:
+                terminal_state = "finished_with_output"
+            else:
+                terminal_state = "finished_no_output"
+
+            stats["finished"] = True
+            stats["last_state"] = terminal_state
+            self.__telemetryLog(
+                modName,
+                terminal_state,
+                received=stats["received_event_count"],
+                produced=stats["produced_output_count"],
+            )
+
+    def __logTerminalModuleSnapshot(self) -> None:
+        modules_waiting = []
+        for mod in self.__moduleInstances.values():
+            qsize = 0
+            with suppress(Exception):
+                if mod.incomingEventQueue is not None:
+                    qsize = mod.incomingEventQueue.qsize()
+            modules_waiting.append((mod.__name__, qsize))
+
+        modules_waiting = sorted(modules_waiting, key=lambda x: x[-1], reverse=True)
+        events_queued = ", ".join([f"{mod}: {qsize:,}" for mod, qsize in modules_waiting[:5] if qsize > 0])
+        if not events_queued:
+            events_queued = 'None'
+
+        modules_errored = []
+        for mod in self.__moduleInstances.values():
+            with suppress(Exception):
+                if mod.errorState:
+                    modules_errored.append(mod.__name__)
+
+        self.__sf.debug(f"Events queued: {sum([m[-1] for m in modules_waiting]):,} ({events_queued})")
+        self.__sf.debug("Modules running: 0 (None)")
+        if modules_errored:
+            self.__sf.debug(f"Modules errored: {len(modules_errored):,} ({', '.join(sorted(modules_errored))})")
+
     def __startScan(self) -> None:
         """Start running a scan.
 
@@ -357,6 +467,7 @@ class SpiderFootScanner():
 
                 self.__moduleInstances[modName] = mod
                 self.__sf.status(f"{modName} module loaded.")
+                self.__markModuleLoaded(modName)
 
             self.__sf.debug(f"Scan [{self.__scanId}] loaded {len(self.__moduleInstances)} modules.")
 
@@ -404,6 +515,7 @@ class SpiderFootScanner():
 
             # start threads
             self.waitForThreads()
+            self.__emitModuleTerminalTelemetry()
             failed = False
 
         except (KeyboardInterrupt, AssertionError):
@@ -420,6 +532,8 @@ class SpiderFootScanner():
 
         finally:
             if not failed:
+                self.__logTerminalModuleSnapshot()
+                self.__emitModuleTerminalTelemetry()
                 self.__setStatus("FINISHED", None, time.time() * 1000)
                 self.runCorrelations()
                 self.__sf.status(f"Scan [{self.__scanId}] completed.")
@@ -468,6 +582,8 @@ class SpiderFootScanner():
                 try:
                     sfEvent = self.eventQueue.get_nowait()
                     self.__sf.debug(f"waitForThreads() got event, {sfEvent.eventType}, from eventQueue.")
+                    if getattr(sfEvent, "module", None) in self.__moduleInstances:
+                        self.__markModuleProducedOutput(sfEvent.module, sfEvent.eventType)
                 except queue.Empty:
                     # check if we're finished
                     if self.threadsFinished(log_status):
@@ -507,8 +623,11 @@ class SpiderFootScanner():
                         watchedEvents = mod.watchedEvents()
                         if sfEvent.eventType in watchedEvents or "*" in watchedEvents:
                             mod.incomingEventQueue.put(deepcopy(sfEvent))
+                            self.__markModuleReceivedEvent(mod.__name__, sfEvent.eventType)
 
         finally:
+            with suppress(Exception):
+                self.__emitModuleTerminalTelemetry()
             # tell the modules to stop
             for mod in self.__moduleInstances.values():
                 mod._stopScanning = True
@@ -550,6 +669,7 @@ class SpiderFootScanner():
             try:
                 if m.errorState:
                     modules_errored.append(m.__name__)
+                    self.__markModuleErrored(m.__name__)
             except Exception:
                 with suppress(Exception):
                     m.errorState = True

@@ -97,7 +97,9 @@ sf.deleteScan = function(scan_id, callback) {
     req.done(function() {
         alertify.success('<i class="glyphicon glyphicon-ok-circle"></i> <b>Varreduras Excluídas</b><br/><br/>' + scan_id.replace(/,/g, "<br/>"));
         sf.log("Varreduras excluídas: " + scan_id);
-        callback();
+        if (callback) {
+            callback(scan_id.split(','));
+        }
     });
     req.fail(function (hr, textStatus, errorThrown) {
         alertify.error('<i class="glyphicon glyphicon-minus-sign"></i> <b>Erro</b><br/></br>' + hr.responseText);

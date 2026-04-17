@@ -146,9 +146,42 @@ class SpiderFootDb:
             summary             TEXT NOT NULL DEFAULT '', \
             updated             INT NOT NULL DEFAULT 0 \
         )",
+        "CREATE TABLE IF NOT EXISTS tbl_scan_operational_memory ( \
+            scan_instance_id    VARCHAR NOT NULL PRIMARY KEY REFERENCES tbl_scan_instance(guid), \
+            analyst_hypothesis  TEXT NOT NULL DEFAULT '', \
+            investigated_pivots TEXT NOT NULL DEFAULT '', \
+            reviewed_correlations TEXT NOT NULL DEFAULT '', \
+            decisions_taken     TEXT NOT NULL DEFAULT '', \
+            open_questions      TEXT NOT NULL DEFAULT '', \
+            updated             INT NOT NULL DEFAULT 0 \
+        )",
+        "CREATE TABLE IF NOT EXISTS tbl_agent_session ( \
+            id                  VARCHAR NOT NULL PRIMARY KEY, \
+            scan_instance_id    VARCHAR NOT NULL REFERENCES tbl_scan_instance(guid), \
+            result_hash         VARCHAR NOT NULL REFERENCES tbl_scan_results(hash), \
+            agent_type          VARCHAR NOT NULL, \
+            status              VARCHAR NOT NULL DEFAULT 'running', \
+            summary             TEXT NOT NULL DEFAULT '', \
+            plan_json           TEXT NOT NULL DEFAULT '[]', \
+            created             INT NOT NULL DEFAULT 0, \
+            updated             INT NOT NULL DEFAULT 0 \
+        )",
+        "CREATE TABLE IF NOT EXISTS tbl_agent_session_step ( \
+            id                  VARCHAR NOT NULL PRIMARY KEY, \
+            session_id          VARCHAR NOT NULL REFERENCES tbl_agent_session(id), \
+            step_order          INT NOT NULL DEFAULT 0, \
+            tool_name           VARCHAR NOT NULL, \
+            action              TEXT NOT NULL DEFAULT '', \
+            status              VARCHAR NOT NULL DEFAULT 'pending', \
+            observation         TEXT NOT NULL DEFAULT '', \
+            created             INT NOT NULL DEFAULT 0 \
+        )",
         "CREATE INDEX IF NOT EXISTS idx_finding_state_scan ON tbl_scan_finding_state (scan_instance_id)",
         "CREATE INDEX IF NOT EXISTS idx_finding_evidence_scan ON tbl_scan_finding_evidence (scan_instance_id, result_hash)",
-        "CREATE INDEX IF NOT EXISTS idx_validation_run_scan ON tbl_scan_validation_run (scan_instance_id, result_hash)"
+        "CREATE INDEX IF NOT EXISTS idx_validation_run_scan ON tbl_scan_validation_run (scan_instance_id, result_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_operational_memory_scan ON tbl_scan_operational_memory (scan_instance_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_session_scan ON tbl_agent_session (scan_instance_id, result_hash, agent_type)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_session_step_session ON tbl_agent_session_step (session_id, step_order)"
     ]
 
     eventDetails = [
@@ -627,6 +660,170 @@ class SpiderFootDb:
             except sqlite3.Error as e:
                 raise IOError("SQL error encountered when storing case verdict") from e
 
+    def operationalMemoryGet(self, instanceId: str) -> dict:
+        qry = "SELECT analyst_hypothesis, investigated_pivots, reviewed_correlations, decisions_taken, open_questions, updated \
+            FROM tbl_scan_operational_memory WHERE scan_instance_id = ?"
+        qvars = [instanceId]
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                row = self.dbh.fetchone()
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when fetching operational memory") from e
+
+        if not row:
+            return {
+                "analyst_hypothesis": "",
+                "investigated_pivots": "",
+                "reviewed_correlations": "",
+                "decisions_taken": "",
+                "open_questions": "",
+                "updated": 0,
+            }
+
+        return {
+            "analyst_hypothesis": row[0] or "",
+            "investigated_pivots": row[1] or "",
+            "reviewed_correlations": row[2] or "",
+            "decisions_taken": row[3] or "",
+            "open_questions": row[4] or "",
+            "updated": row[5],
+        }
+
+    def operationalMemorySet(
+        self,
+        instanceId: str,
+        analystHypothesis: str = "",
+        investigatedPivots: str = "",
+        reviewedCorrelations: str = "",
+        decisionsTaken: str = "",
+        openQuestions: str = "",
+    ) -> bool:
+        qry = "REPLACE INTO tbl_scan_operational_memory \
+            (scan_instance_id, analyst_hypothesis, investigated_pivots, reviewed_correlations, decisions_taken, open_questions, updated) \
+            VALUES (?, ?, ?, ?, ?, ?, ?)"
+        qvars = [
+            instanceId,
+            analystHypothesis or "",
+            investigatedPivots or "",
+            reviewedCorrelations or "",
+            decisionsTaken or "",
+            openQuestions or "",
+            int(time.time()),
+        ]
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                self.conn.commit()
+                return True
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when storing operational memory") from e
+
+    def agentSessionCreate(self, instanceId: str, resultHash: str, agentType: str,
+                           status: str = "running", summary: str = "", planJson: str = "[]") -> str:
+        sessionId = str(uuid.uuid4())
+        now = int(time.time())
+        qry = "INSERT INTO tbl_agent_session \
+            (id, scan_instance_id, result_hash, agent_type, status, summary, plan_json, created, updated) \
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        qvars = [sessionId, instanceId, resultHash, agentType, status, summary or "", planJson or "[]", now, now]
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                self.conn.commit()
+                return sessionId
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when creating agent session") from e
+
+    def agentSessionUpdate(self, sessionId: str, status: str, summary: str = None, planJson: str = None) -> bool:
+        if not isinstance(sessionId, str):
+            raise TypeError(f"sessionId is {type(sessionId)}; expected str()") from None
+
+        fields = ["status = ?", "updated = ?"]
+        qvars = [status, int(time.time())]
+
+        if summary is not None:
+            fields.append("summary = ?")
+            qvars.append(summary)
+
+        if planJson is not None:
+            fields.append("plan_json = ?")
+            qvars.append(planJson)
+
+        qvars.append(sessionId)
+        qry = f"UPDATE tbl_agent_session SET {', '.join(fields)} WHERE id = ?"
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                self.conn.commit()
+                return self.dbh.rowcount > 0
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when updating agent session") from e
+
+    def agentSessionLatest(self, instanceId: str, resultHash: str, agentType: str = None) -> dict:
+        qry = "SELECT id, scan_instance_id, result_hash, agent_type, status, summary, plan_json, created, updated \
+            FROM tbl_agent_session WHERE scan_instance_id = ? AND result_hash = ?"
+        qvars = [instanceId, resultHash]
+
+        if agentType:
+            qry += " AND agent_type = ?"
+            qvars.append(agentType)
+
+        qry += " ORDER BY created DESC LIMIT 1"
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                row = self.dbh.fetchone()
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when fetching latest agent session") from e
+
+        if not row:
+            return None
+
+        return {
+            "id": row[0],
+            "scan_instance_id": row[1],
+            "result_hash": row[2],
+            "agent_type": row[3],
+            "status": row[4],
+            "summary": row[5] or "",
+            "plan_json": row[6] or "[]",
+            "created": row[7],
+            "updated": row[8],
+        }
+
+    def agentSessionStepAdd(self, sessionId: str, stepOrder: int, toolName: str, action: str,
+                            status: str, observation: str) -> str:
+        stepId = str(uuid.uuid4())
+        qry = "INSERT INTO tbl_agent_session_step \
+            (id, session_id, step_order, tool_name, action, status, observation, created) \
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        qvars = [stepId, sessionId, stepOrder, toolName, action or "", status, observation or "", int(time.time())]
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                self.conn.commit()
+                return stepId
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when storing agent session step") from e
+
+    def agentSessionSteps(self, sessionId: str) -> list:
+        qry = "SELECT id, step_order, tool_name, action, status, observation, created \
+            FROM tbl_agent_session_step WHERE session_id = ? ORDER BY step_order ASC, created ASC"
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, [sessionId])
+                return self.dbh.fetchall()
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when fetching agent session steps") from e
+
     def scanFindingOperationalSummary(self, instanceId: str) -> dict:
         summary = {
             "triage_status": {},
@@ -634,20 +831,52 @@ class SpiderFootDb:
             "exploitability": {},
             "analyst_verdict": {},
             "evidence_count": 0,
-            "validation_count": 0
+            "validation_count": 0,
+            "total_findings": 0,
+            "classified_findings": 0,
+            "unclassified_findings": 0,
+            "triaged_findings": 0,
+            "memory_updated": 0,
         }
 
         with self.dbhLock:
             try:
+                self.dbh.execute(
+                    "SELECT COUNT(*) FROM tbl_scan_results WHERE scan_instance_id = ? AND type <> 'ROOT'",
+                    [instanceId]
+                )
+                summary["total_findings"] = self.dbh.fetchone()[0]
+
+                self.dbh.execute(
+                    "SELECT COUNT(*) FROM tbl_scan_finding_state WHERE scan_instance_id = ?",
+                    [instanceId]
+                )
+                summary["classified_findings"] = self.dbh.fetchone()[0]
+
                 for field in ["triage_status", "relevance", "exploitability", "analyst_verdict"]:
                     qry = f"SELECT {field}, COUNT(*) FROM tbl_scan_finding_state WHERE scan_instance_id = ? GROUP BY {field}"
                     self.dbh.execute(qry, [instanceId])
                     summary[field] = {row[0]: row[1] for row in self.dbh.fetchall()}
 
+                summary["unclassified_findings"] = max(
+                    summary["total_findings"] - summary["classified_findings"],
+                    0
+                )
+                summary["triage_status"]["novo"] = (
+                    summary["triage_status"].get("novo", 0) + summary["unclassified_findings"]
+                )
+                summary["triaged_findings"] = max(
+                    summary["total_findings"] - summary["triage_status"].get("novo", 0),
+                    0
+                )
+
                 self.dbh.execute("SELECT COUNT(*) FROM tbl_scan_finding_evidence WHERE scan_instance_id = ?", [instanceId])
                 summary["evidence_count"] = self.dbh.fetchone()[0]
                 self.dbh.execute("SELECT COUNT(*) FROM tbl_scan_validation_run WHERE scan_instance_id = ?", [instanceId])
                 summary["validation_count"] = self.dbh.fetchone()[0]
+                self.dbh.execute("SELECT updated FROM tbl_scan_operational_memory WHERE scan_instance_id = ?", [instanceId])
+                memory_row = self.dbh.fetchone()
+                summary["memory_updated"] = memory_row[0] if memory_row else 0
             except sqlite3.Error as e:
                 raise IOError("SQL error encountered when building operational summary") from e
 
@@ -1108,6 +1337,25 @@ class SpiderFootDb:
             except sqlite3.Error as e:
                 raise IOError("SQL error encountered when fetching correlation list") from e
 
+    def findingCorrelationList(self, instanceId: str, resultHash: str) -> list:
+        if not isinstance(instanceId, str):
+            raise TypeError(f"instanceId is {type(instanceId)}; expected str()") from None
+        if not isinstance(resultHash, str):
+            raise TypeError(f"resultHash is {type(resultHash)}; expected str()") from None
+
+        qry = "SELECT c.id, c.title, c.rule_id, c.rule_risk, c.rule_name, c.rule_descr, c.rule_logic \
+            FROM tbl_scan_correlation_results c, tbl_scan_correlation_results_events e \
+            WHERE c.scan_instance_id = ? AND e.event_hash = ? AND c.id = e.correlation_id \
+            ORDER BY c.rule_risk DESC, c.title ASC"
+        qvars = [instanceId, resultHash]
+
+        with self.dbhLock:
+            try:
+                self.dbh.execute(qry, qvars)
+                return self.dbh.fetchall()
+            except sqlite3.Error as e:
+                raise IOError("SQL error encountered when fetching finding correlations") from e
+
     def scanResultEvent(
         self,
         instanceId: str,
@@ -1356,10 +1604,16 @@ class SpiderFootDb:
         qry6 = "DELETE FROM tbl_scan_finding_evidence WHERE scan_instance_id = ?"
         qry7 = "DELETE FROM tbl_scan_validation_run WHERE scan_instance_id = ?"
         qry8 = "DELETE FROM tbl_scan_case_verdict WHERE scan_instance_id = ?"
+        qry9 = "DELETE FROM tbl_scan_operational_memory WHERE scan_instance_id = ?"
+        qry10 = "DELETE FROM tbl_agent_session_step WHERE session_id IN (SELECT id FROM tbl_agent_session WHERE scan_instance_id = ?)"
+        qry11 = "DELETE FROM tbl_agent_session WHERE scan_instance_id = ?"
         qvars = [instanceId]
 
         with self.dbhLock:
             try:
+                self.dbh.execute(qry10, qvars)
+                self.dbh.execute(qry11, qvars)
+                self.dbh.execute(qry9, qvars)
                 self.dbh.execute(qry8, qvars)
                 self.dbh.execute(qry7, qvars)
                 self.dbh.execute(qry6, qvars)

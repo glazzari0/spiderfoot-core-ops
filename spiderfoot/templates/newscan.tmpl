@@ -37,6 +37,14 @@
     </div>
 </div>
 
+% if planner_note:
+<div class="alert alert-info" style="margin-top: 10px;">
+    <b>Plano de reanálise sugerido:</b> ${planner_note}
+    <br>
+    Revise os módulos já selecionados, ajuste o que julgar necessário e execute a nova varredura quando estiver satisfeito.
+</div>
+% endif
+
     <div class="control-group sf-table-shell">
         <ul class='nav nav-tabs'>
         <li id='usetab' class="active"><a href='#'>Por Caso de Uso</a></li>

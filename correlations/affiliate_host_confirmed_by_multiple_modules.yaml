@@ -1,0 +1,26 @@
+id: affiliate_host_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Affiliated host confirmed by multiple modules
+  description: >
+    The same affiliated host or domain was discovered by multiple
+    modules.
+
+    Multi-source confirmation usually means the relationship is stronger
+    and should be prioritized over single-source affiliate findings.
+  risk: LOW
+collections:
+  - collect:
+      - method: regex
+        field: type
+        value:
+          - AFFILIATE_INTERNET_NAME
+          - AFFILIATE_DOMAIN_NAME
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Affiliated host confirmed by multiple modules: {data}"

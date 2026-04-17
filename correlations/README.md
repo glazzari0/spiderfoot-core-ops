@@ -15,6 +15,26 @@ With the release of SpiderFoot 4.0 we wanted to bring this capability from Spide
 
 With that said, let's get into what these rules look like and how to write one.
 
+## Project-specific notes
+
+This repository contains the original community rules and an expanded custom rule set focused on making the web dashboard more useful for day-to-day operational analysis.
+
+In the customized environment of this project, correlation rules are used not only to raise notable findings, but also to:
+
+* support the scan dashboard with more contextual explanations
+* improve coverage for IP-only, identity, leak and public footprint investigations
+* reduce the "No correlations" dead-end by making it clearer when scan data is simply outside the scope of the active rules
+
+The custom rule families currently added in this repository prioritize:
+
+* affiliate IP confirmation and exposure patterns
+* host and netblock confirmation by multiple modules
+* identity and personal discovery signals
+* leak site / darknet references
+* social presence and public code repository footprint
+
+These custom rules should follow the same YAML structure described below so they remain compatible with the standard SpiderFoot correlation engine.
+
 ## Key concepts
 
 ### YAML
@@ -119,6 +139,15 @@ The rules themselves are broken down into the following components:
 To create your own rule, simply copy the `template.yaml` file in the `correlations` folder to a meaningful name that matches the ID you intend to provide it, e.g. `aws_cloud_usage.yaml` and edit the rule to fit your needs. Save it and re-start SpiderFoot for the rule to be loaded. If there are any syntax errors, SpiderFoot will abort at startup and (hopefully) give you enough information to know where the error is.
 
 The `template.yaml` file is also a good next point of reference to better understand the structure of the rules and how to use them. We also recommend taking a look through the actual rules themselves to see the concepts in practice.
+
+For this customized repository, prefer rules that:
+
+* transform noisy raw events into operator-friendly summaries
+* explain why something matters in practical terms
+* avoid duplicating information the dashboard already shows directly
+* keep false positives under control, especially in large scans
+
+When adding new rules here, keep the naming meaningful and grouped by operational context where possible.
 
 ## Rule Reference
 

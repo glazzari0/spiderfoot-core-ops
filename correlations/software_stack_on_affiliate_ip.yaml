@@ -1,0 +1,21 @@
+id: software_stack_on_affiliate_ip
+version: 1
+meta:
+  name: Software stack revealed on affiliated IP
+  description: >
+    Software identification events were recorded for an affiliated IP.
+
+    Fingerprinted technologies on adjacent systems can help prioritize
+    follow-up validation and version analysis.
+  risk: LOW
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: SOFTWARE_USED
+      - method: exact
+        field: source.type
+        value: AFFILIATE_IPADDR
+aggregation:
+  field: source.data
+headline: "Affiliated IP reveals a software stack: {source.data}"

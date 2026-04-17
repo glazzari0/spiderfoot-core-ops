@@ -1,0 +1,24 @@
+id: affiliate_ip_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Affiliated IP confirmed by multiple modules
+  description: >
+    The same affiliated IP address was reported by multiple modules.
+
+    When more than one collection path arrives at the same adjacent IP,
+    confidence increases that the relationship is real and worth deeper
+    investigation.
+  risk: LOW
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: AFFILIATE_IPADDR
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Affiliated IP confirmed by multiple modules: {data}"

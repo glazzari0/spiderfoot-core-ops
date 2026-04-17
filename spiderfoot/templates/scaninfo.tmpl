@@ -202,12 +202,280 @@
                 });
                 $("#ops-triage-breakdown").html(triageHtml);
                 $("#ops-exploit-breakdown").html(exploitHtml);
+                $("#ops-total-findings").text(data.summary.total_findings || 0);
+                $("#ops-new-count").text((data.summary.triage_status && data.summary.triage_status.novo) || 0);
+                $("#ops-triaged-count").text(data.summary.triaged_findings || 0);
                 $("#ops-evidence-count").text(data.summary.evidence_count || 0);
                 $("#ops-validation-count").text(data.summary.validation_count || 0);
+                $("#ops-summary-note").text(
+                    (data.summary.unclassified_findings || 0) > 0
+                        ? "Achados sem classificacao manual entram automaticamente como Novo."
+                        : "Todos os achados ja possuem algum estado operacional salvo."
+                );
                 $("#case-verdict").html(renderFindingSelectOptions("analyst_verdict", data.verdict.verdict));
                 $("#case-verdict-summary").val(data.verdict.summary || "");
                 $("#case-verdict-updated").text(data.verdict.updated ? "Atualizado" : "Ainda sem veredito final salvo.");
+                $("#scan-analyst-hypothesis").val((data.memory || {}).analyst_hypothesis || "");
+                $("#scan-investigated-pivots").val((data.memory || {}).investigated_pivots || "");
+                $("#scan-reviewed-correlations").val((data.memory || {}).reviewed_correlations || "");
+                $("#scan-decisions-taken").val((data.memory || {}).decisions_taken || "");
+                $("#scan-open-questions").val((data.memory || {}).open_questions || "");
+                $("#scan-memory-updated").text(
+                    (data.memory || {}).updated
+                        ? "Memória operacional atualizada."
+                        : "Ainda não há memória operacional salva para esta varredura."
+                );
+                $("#scan-memory-risk-policy").text(((data.action_risk_policy || {}).save_scan_memory || {}).description || "");
             });
+        }
+
+        function saveScanMemory(instanceId) {
+            sf.fetchData('${docroot}/scanmemoryupdate', {
+                'id': instanceId,
+                'analyst_hypothesis': $("#scan-analyst-hypothesis").val(),
+                'investigated_pivots': $("#scan-investigated-pivots").val(),
+                'reviewed_correlations': $("#scan-reviewed-correlations").val(),
+                'decisions_taken': $("#scan-decisions-taken").val(),
+                'open_questions': $("#scan-open-questions").val()
+            }, function(ret) {
+                if (ret[0] == "SUCCESS") {
+                    alertify.success(ret[1]);
+                    refreshOperationalSummary(instanceId);
+                } else {
+                    alertify.error(ret[1]);
+                }
+            });
+        }
+
+        function renderScanReanalysisPlan(planData) {
+            if (!planData) {
+                $("#scan-ai-reanalysis-plan").html("<div class='text-muted'>Nenhum plano de reanálise disponível.</div>");
+                return;
+            }
+
+            var analysis = planData.analysis || {};
+            var detailMap = planData.module_details || {};
+            var renderModuleList = function(items, emptyText) {
+                if (!(items || []).length) {
+                    return "<div class='text-muted'>" + escapeHtmlText(emptyText) + "</div>";
+                }
+                return items.map(function(id) {
+                    var item = detailMap[id] || {};
+                    return "<div><b>" + escapeHtmlText(item.name || id) + "</b> <span class='text-muted'>(" + escapeHtmlText(id) + ")</span><div class='font-size-90-percent text-muted'>" + escapeHtmlText(item.description || "") + "</div></div>";
+                }).join("");
+            };
+
+            var reasoning = (analysis.reasoning || []).length
+                ? "<ul><li>" + analysis.reasoning.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem racional detalhado.</div>";
+            var coverage = (analysis.coverage_assessment || []).length
+                ? "<ul><li>" + analysis.coverage_assessment.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem leitura adicional de cobertura.</div>";
+            var steps = (analysis.suggested_steps || []).length
+                ? "<ul><li>" + analysis.suggested_steps.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem etapas adicionais sugeridas.</div>";
+            var evidence = (analysis.evidence_refresh_suggestions || []).length
+                ? "<ul><li>" + analysis.evidence_refresh_suggestions.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem atualização de evidência sugerida.</div>";
+            var adjustment = (analysis.operator_adjustment_notes || []).length
+                ? "<ul><li>" + analysis.operator_adjustment_notes.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem observações extras para ajuste manual.</div>";
+
+            var html = "";
+            html += "<div class='sf-inline-card'>";
+            html += "<div><b>Resumo</b> <span class='text-muted'>(confiança " + escapeHtmlText(String(analysis.confidence || 0)) + "%)</span></div>";
+            html += "<div style='margin-top:6px;'>" + escapeHtmlText(analysis.summary || "") + "</div>";
+            html += "<div style='margin-top:10px;'><b>Orientação de decisão</b><div>" + escapeHtmlText(analysis.decision_guidance || "") + "</div></div>";
+            html += "<div style='margin-top:10px;'><b>Leitura de cobertura</b>" + coverage + "</div>";
+            html += "<div style='margin-top:10px;'><b>Racional</b>" + reasoning + "</div>";
+            html += "<div class='row' style='margin-top:10px;'><div class='col-sm-6'><b>Adicionar módulos</b>" + renderModuleList(planData.recommended_modules_add || [], "Nenhum módulo adicional sugerido.") + "</div><div class='col-sm-6'><b>Remover módulos</b>" + renderModuleList(planData.recommended_modules_remove || [], "Nenhum módulo sugerido para remoção.") + "</div></div>";
+            html += "<div style='margin-top:10px;'><b>Etapas sugeridas</b>" + steps + "</div>";
+            html += "<div style='margin-top:10px;'><b>Evidências a revisar antes da reanálise</b>" + evidence + "</div>";
+            html += "<div style='margin-top:10px;'><b>Ajustes manuais esperados do operador</b>" + adjustment + "</div>";
+            html += "<div style='margin-top:10px;'><button class='btn btn-primary' onClick='window.location.href=" + JSON.stringify(planData.apply_url || "#") + "'>Abrir nova varredura com plano sugerido</button></div>";
+            html += "</div>";
+            $("#scan-ai-reanalysis-plan").html(html);
+        }
+
+        function requestScanReanalysisPlan(instanceId) {
+            $("#scan-ai-reanalysis-plan").html("<div class='text-muted'>Consultando o Ollama local para montar o plano de reanálise...</div>");
+            $.ajax({
+                type: "POST",
+                url: '${docroot}/scanreanalysisplan',
+                data: {'id': instanceId},
+                cache: false,
+                dataType: "json"
+            }).done(function(ret) {
+                if (!ret || ret.error || ret.status != "SUCCESS") {
+                    var message = (ret && ret.error && ret.error.message) || "Falha ao montar o plano de reanálise.";
+                    $("#scan-ai-reanalysis-plan").html("<div class='alert alert-danger'>" + escapeHtmlText(message) + "</div>");
+                    alertify.error(message);
+                    return;
+                }
+                renderScanReanalysisPlan(ret);
+                alertify.success("Plano de reanálise preparado. Revise antes de abrir a nova varredura.");
+            }).fail(function(hr, status) {
+                var message = "Falha ao montar o plano de reanálise.";
+                if (hr.responseJSON && hr.responseJSON.error && hr.responseJSON.error.message) {
+                    message = hr.responseJSON.error.message;
+                } else if (hr.responseText) {
+                    message = hr.responseText;
+                } else if (status) {
+                    message = status;
+                }
+                $("#scan-ai-reanalysis-plan").html("<div class='alert alert-danger'>" + escapeHtmlText(message) + "</div>");
+                alertify.error(message);
+            });
+        }
+
+        function renderCompactModuleList(items, emptyText, limit) {
+            var list = items || [];
+            var maxItems = limit || 6;
+            if (!list.length) {
+                return "<span class='text-muted'>" + escapeHtmlText(emptyText || "Sem dados.") + "</span>";
+            }
+
+            var visibleItems = list.slice(0, maxItems).map(function(item) {
+                return "<div>" + escapeHtmlText(item) + "</div>";
+            }).join("");
+
+            if (list.length > maxItems) {
+                visibleItems += "<div class='text-muted'>+" + (list.length - maxItems) + " outros</div>";
+            }
+
+            return visibleItems;
+        }
+
+        function renderTopActiveModules(items, emptyText, limit) {
+            var list = items || [];
+            var maxItems = limit || 5;
+            if (!list.length) {
+                return "<span class='text-muted'>" + escapeHtmlText(emptyText || "Sem dados.") + "</span>";
+            }
+
+            return list.slice(0, maxItems).map(function(item) {
+                return "<div><b>" + escapeHtmlText(item.name || item.id || "-") + "</b> <span class='text-muted'>(" + (item.total || 0) + ")</span></div>";
+            }).join("");
+        }
+
+        function moduleLifecycleColor(lifecycle) {
+            var palette = {
+                running: "#f59f00",
+                received_event: "#4dabf7",
+                loaded: "#74c0fc",
+                pending: "#ced4da",
+                finished_with_output: "#51cf66",
+                finished_no_output: "#94d82d",
+                errored: "#ff6b6b"
+            };
+            return palette[lifecycle] || "#adb5bd";
+        }
+
+        function renderModuleLifecycleOverview(items) {
+            var list = items || [];
+            if (!list.length) {
+                return "<span class='text-muted'>Nenhum dado de ciclo de vida disponível.</span>";
+            }
+
+            var lifecycleOrder = [
+                "running",
+                "received_event",
+                "loaded",
+                "pending",
+                "finished_with_output",
+                "finished_no_output",
+                "errored"
+            ];
+            var labels = {
+                running: "Em execução",
+                received_event: "Recebeu evento",
+                loaded: "Carregado",
+                pending: "Pendente",
+                finished_with_output: "Com saída",
+                finished_no_output: "Sem saída",
+                errored: "Erro"
+            };
+            var counts = {};
+            lifecycleOrder.forEach(function(key) {
+                counts[key] = 0;
+            });
+            list.forEach(function(item) {
+                var lifecycle = item.lifecycle || "pending";
+                counts[lifecycle] = (counts[lifecycle] || 0) + 1;
+            });
+
+            var total = list.length || 1;
+            var summaryCards = lifecycleOrder.map(function(key) {
+                if (!counts[key]) {
+                    return "";
+                }
+                return "<div style='min-width:88px; padding:8px 10px; border:1px solid #e9ecef; border-radius:10px; background:#fff;'>"
+                    + "<div class='text-muted font-size-90-percent'><span style='display:inline-block; width:9px; height:9px; border-radius:50%; background:" + moduleLifecycleColor(key) + "; margin-right:6px;'></span>"
+                    + escapeHtmlText(labels[key]) + "</div>"
+                    + "<div style='font-size:22px; line-height:1.1; font-weight:600;'>" + counts[key] + "</div>"
+                    + "</div>";
+            }).join("");
+
+            var distributionBar = lifecycleOrder.map(function(key) {
+                if (!counts[key]) {
+                    return "";
+                }
+                var width = Math.max((counts[key] / total) * 100, 1.5);
+                return "<div title='" + escapeHtmlText(labels[key]) + ": " + counts[key] + "' style='height:14px; width:" + width + "%; background:" + moduleLifecycleColor(key) + ";'></div>";
+            }).join("");
+
+            var spotlight = list.slice().sort(function(a, b) {
+                return (b.result_total || 0) - (a.result_total || 0)
+                    || (b.produced_count || 0) - (a.produced_count || 0)
+                    || (b.received_count || 0) - (a.received_count || 0)
+                    || String(a.name || "").localeCompare(String(b.name || ""));
+            }).slice(0, 8);
+
+            var spotlightHtml = spotlight.map(function(item) {
+                var counters = [];
+                if (item.result_total) {
+                    counters.push("resultados " + item.result_total);
+                }
+                if (item.produced_count) {
+                    counters.push("produzidos " + item.produced_count);
+                }
+                if (item.received_count) {
+                    counters.push("recebidos " + item.received_count);
+                }
+                if (!counters.length) {
+                    counters.push(item.lifecycle_label || "Sem atividade");
+                }
+                return "<div style='display:flex; align-items:center; gap:8px; margin-bottom:6px;'>"
+                    + "<span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:" + moduleLifecycleColor(item.lifecycle) + "; flex:0 0 auto;'></span>"
+                    + "<div style='min-width:0;'>"
+                    + "<div style='font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>" + escapeHtmlText(item.name || item.id || "-") + "</div>"
+                    + "<div class='text-muted font-size-90-percent'>" + escapeHtmlText(counters.join(" | ")) + "</div>"
+                    + "</div></div>";
+            }).join("");
+
+            var dotMatrix = list.map(function(item) {
+                var tooltip = (item.name || item.id || "-")
+                    + " — " + (item.lifecycle_label || item.lifecycle || "-")
+                    + " | resultados=" + (item.result_total || 0)
+                    + " | produzidos=" + (item.produced_count || 0)
+                    + " | recebidos=" + (item.received_count || 0);
+                return "<span rel='tooltip' data-title='" + escapeHtmlText(tooltip) + "' style='display:inline-block; width:12px; height:12px; border-radius:50%; background:" + moduleLifecycleColor(item.lifecycle) + "; margin:0 5px 5px 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);'></span>";
+            }).join("");
+
+            return ""
+                + "<div style='display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;'>" + summaryCards + "</div>"
+                + "<div style='border-radius:999px; overflow:hidden; display:flex; height:14px; background:#f1f3f5; margin-bottom:12px;'>" + distributionBar + "</div>"
+                + "<div class='row'>"
+                + "<div class='col-sm-7'>"
+                + "<div class='text-muted font-size-90-percent' style='margin-bottom:6px;'>Malha completa de módulos</div>"
+                + "<div style='padding:10px; border:1px solid #e9ecef; border-radius:10px; background:#fff; line-height:0;'>" + dotMatrix + "</div>"
+                + "<div class='text-muted font-size-90-percent' style='margin-top:6px;'>Cada ponto representa um módulo. Passe o mouse para ver nome, estado e atividade.</div>"
+                + "</div>"
+                + "<div class='col-sm-5'>"
+                + "<div class='text-muted font-size-90-percent' style='margin-bottom:6px;'>Destaques operacionais</div>"
+                + "<div style='padding:10px; border:1px solid #e9ecef; border-radius:10px; background:#fff;'>" + spotlightHtml + "</div>"
+                + "</div>"
+                + "</div>";
         }
 
         function saveCaseVerdict(instanceId) {
@@ -282,11 +550,19 @@
                         ? "<span class='text-success'>Ollama pronto: " + escapeHtmlText(data.ai.model || "modelo não identificado") + "</span>"
                         : "<span class='text-warning'>Configure a aba IA / Ollama para usar a análise assistida.</span>"
                 );
+                $("#finding-action-risk-policy").html(
+                    "<div><b>Salvar classificação:</b> " + escapeHtmlText((((data.action_risk_policy || {}).save_finding_state || {}).label || "-")) + " <span class='text-muted'>- " + escapeHtmlText((((data.action_risk_policy || {}).save_finding_state || {}).description || "")) + "</span></div>"
+                    + "<div><b>Adicionar evidência:</b> " + escapeHtmlText((((data.action_risk_policy || {}).add_evidence || {}).label || "-")) + " <span class='text-muted'>- " + escapeHtmlText((((data.action_risk_policy || {}).add_evidence || {}).description || "")) + "</span></div>"
+                    + "<div><b>Validação segura:</b> " + escapeHtmlText((((data.action_risk_policy || {}).finding_validate || {}).label || "-")) + " <span class='text-muted'>- " + escapeHtmlText((((data.action_risk_policy || {}).finding_validate || {}).description || "")) + "</span></div>"
+                    + "<div><b>Análise assistida:</b> " + escapeHtmlText((((data.action_risk_policy || {}).finding_ai_assist || {}).label || "-")) + " <span class='text-muted'>- " + escapeHtmlText((((data.action_risk_policy || {}).finding_ai_assist || {}).description || "")) + "</span></div>"
+                );
                 if (currentAiSuggestion) {
                     renderFindingAiAnalysis(currentAiSuggestion);
                 } else {
                     $("#finding-ai-analysis").html("<div class='text-muted'>Execute a análise assistida para receber uma sugestão de triagem, relevância, explorabilidade, veredito e próximos passos.</div>");
                 }
+
+                renderSecurityLoopPanel(data.security_loop, data.correlations || []);
 
                 var evidenceHtml = data.evidence.length
                     ? data.evidence.map(function(item) {
@@ -302,6 +578,56 @@
                     : "<div class='text-muted'>Nenhuma validação executada ainda.</div>";
                 $("#finding-validation-list").html(validationHtml);
             });
+        }
+
+        function renderSecurityLoopPanel(sessionData, correlations) {
+            var corrHtml = (correlations || []).length
+                ? correlations.map(function(item) {
+                    var explanation = item.explanation || {};
+                    var eventTypes = (explanation.event_types || []).length
+                        ? escapeHtmlText((explanation.event_types || []).join(", "))
+                        : "Sem tipos destacados";
+                    return "<div class='sf-inline-card'><div><span class='badge " + findingBadgeClass((item.rule_risk || '').toLowerCase()) + "'>" + escapeHtmlText(item.rule_risk || "-") + "</span> <b>" + escapeHtmlText(item.title || item.rule_name || "-") + "</b></div><div class='font-size-90-percent'>" + escapeHtmlText(item.rule_descr || "") + "</div><div style='margin-top:6px;'><b>Por que disparou:</b> " + escapeHtmlText(explanation.why_triggered || "") + "</div><div><b>Confiança prática:</b> " + escapeHtmlText((((explanation.practical_confidence || {}).label) || "-")) + " <span class='text-muted'>(" + escapeHtmlText(String((((explanation.practical_confidence || {}).score) || 0)) + "/100, " + (((explanation.practical_confidence || {}).rationale) || "")) + "</span></div><div><b>Tipos envolvidos:</b> " + eventTypes + "</div><div><b>Próximo passo:</b> " + escapeHtmlText(explanation.next_step || "") + "</div><div class='text-muted font-size-90-percent'>Regra: " + escapeHtmlText(item.rule_id || "-") + "</div></div>";
+                }).join("")
+                : "<div class='text-muted'>Nenhuma correlação associada a este achado.</div>";
+            $("#finding-correlation-list").html(corrHtml);
+
+            if (!sessionData) {
+                $("#finding-security-loop").html("<div class='text-muted'>Nenhuma sessão do Security Loop registrada ainda. Execute a validação segura para gerar prioridade, plano e histórico.</div>");
+                return;
+            }
+
+            var planBundle = sessionData.plan_bundle || {};
+            var steps = (sessionData.steps || []).length
+                ? sessionData.steps.map(function(step) {
+                    return "<div class='sf-inline-card'><div><span class='badge " + findingBadgeClass(step.status || '') + "'>" + escapeHtmlText(step.status || '-') + "</span> <b>#"+ escapeHtmlText(step.step_order || 0) + " " + escapeHtmlText(step.tool_name || '-') + "</b></div><div class='font-size-90-percent'>" + escapeHtmlText(step.action || '') + "</div><pre class='table-border-bg-inherit' style='white-space: pre-wrap; margin-top: 6px;'>" + escapeHtmlText(step.observation || '') + "</pre><div class='text-muted font-size-90-percent'>" + escapeHtmlText(step.created || '') + "</div></div>";
+                }).join("")
+                : "<div class='text-muted'>Nenhuma etapa registrada para a sessão mais recente.</div>";
+
+            var reasoning = (planBundle.reasoning || []).length
+                ? "<ul><li>" + planBundle.reasoning.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                : "<div class='text-muted'>Sem razões detalhadas de priorização.</div>";
+
+            var nextPlan = (planBundle.steps || []).length
+                ? planBundle.steps.map(function(step) {
+                    var badge = step.already_executed ? "label label-default" : "label label-info";
+                    return "<div><span class='" + badge + "'>" + escapeHtmlText(step.tool_name || '-') + "</span> " + escapeHtmlText(step.action || '') + " <span class='text-muted'>(" + escapeHtmlText(step.reason || "plano") + ")</span></div>";
+                }).join("")
+                : "<div class='text-muted'>Sem plano disponível.</div>";
+
+            var html = "";
+            html += "<div class='sf-inline-card'>";
+            html += "<div class='row'>";
+            html += "<div class='col-sm-4'><b>Prioridade</b><div><span class='badge " + findingBadgeClass(planBundle.priority_label || '') + "'>" + escapeHtmlText(planBundle.priority_label || "rotina") + "</span> <span class='text-muted'>score " + escapeHtmlText(planBundle.priority_score || 0) + "</span></div></div>";
+            html += "<div class='col-sm-4'><b>Status da sessão</b><div>" + escapeHtmlText(sessionData.status || '-') + "</div></div>";
+            html += "<div class='col-sm-4'><b>Atualizado</b><div>" + escapeHtmlText(sessionData.updated || '-') + "</div></div>";
+            html += "</div>";
+            html += "<div style='margin-top: 10px;'><b>Resumo</b><div>" + escapeHtmlText(sessionData.summary || '') + "</div></div>";
+            html += "<div style='margin-top: 10px;'><b>Razões de priorização</b>" + reasoning + "</div>";
+            html += "<div style='margin-top: 10px;'><b>Plano calculado</b><div class='font-size-90-percent'>" + nextPlan + "</div></div>";
+            html += "</div>";
+            html += "<div style='margin-top: 10px;'><b>Etapas da sessão mais recente</b>" + steps + "</div>";
+            $("#finding-security-loop").html(html);
         }
 
         function saveFindingState(instanceId) {
@@ -588,15 +914,15 @@
             grid += "<div class='panel panel-default'>"
             grid += "<div class='panel-heading'><i class='glyphicon glyphicon-info-sign'></i>&nbsp;&nbsp;Leitura do Grafo</div><div class='panel-body'>"
             grid += "<div class='font-size-90-percent' style='margin-bottom: 12px;'>"
-            grid += "<div><span style='color:#ff6b6b'>●</span> Alvo raiz</div>"
-            grid += "<div><span style='color:#51cf66'>●</span> Domínios / hostnames</div>"
-            grid += "<div><span style='color:#4dabf7'>●</span> IPs / redes</div>"
-            grid += "<div><span style='color:#f59f00'>●</span> E-mails</div>"
-            grid += "<div><span style='color:#ff922b'>●</span> Pessoas</div>"
-            grid += "<div><span style='color:#fcc419'>●</span> Usernames</div>"
-            grid += "<div><span style='color:#845ef7'>●</span> Perfis / contas externas</div>"
-            grid += "<div><span style='color:#20c997'>●</span> Repositórios / apps / localização</div>"
-            grid += "<div><span style='color:#ced4da'>●</span> Outros tipos mapeados genericamente</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#ff6b6b; margin-right:6px; vertical-align:middle;'></span>Alvo raiz</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#51cf66; margin-right:6px; vertical-align:middle;'></span>Domínios / hostnames</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#4dabf7; margin-right:6px; vertical-align:middle;'></span>IPs / redes</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59f00; margin-right:6px; vertical-align:middle;'></span>E-mails</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#ff922b; margin-right:6px; vertical-align:middle;'></span>Pessoas</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#fcc419; margin-right:6px; vertical-align:middle;'></span>Usernames</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#845ef7; margin-right:6px; vertical-align:middle;'></span>Perfis / contas externas</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#20c997; margin-right:6px; vertical-align:middle;'></span>Repositórios / apps / localização</div>"
+            grid += "<div><span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#ced4da; margin-right:6px; vertical-align:middle;'></span>Outros tipos mapeados genericamente</div>"
             grid += "</div>"
             grid += "<div class='font-size-90-percent' style='margin-bottom: 12px;'>Nodos maiores tendem a ter mais relações e mais módulos associados.</div>"
             grid += "<div id='graph-node-info' class='font-size-90-percent' style='word-break: break-word; overflow-wrap: anywhere; line-height: 1.5;'>Passe o mouse ou clique em um nodo para ver detalhes.</div>"
@@ -711,7 +1037,7 @@
                     if (!color) {
                         if (/^[a-z0-9._-]{3,64}$/i.test(labelText) && !/@/.test(labelText) && !/https?:\/\//i.test(labelText)) {
                             color = "#fcc419";
-                        } else if (/^[A-Za-zÀ-ÿ'`.-]+(?:\s+[A-Za-zÀ-ÿ'`.-]+)+$/.test(labelText) && !/https?:\/\//i.test(labelText)) {
+                        } else if (/^[A-Za-z][A-Za-z'`.-]*(?:\s+[A-Za-z][A-Za-z'`.-]*)+$/.test(labelText) && !/https?:\/\//i.test(labelText)) {
                             color = "#ff922b";
                         }
                     }
@@ -866,8 +1192,8 @@
             grid += "<div class='panel panel-default'>";
             grid += "<div class='panel-heading'><i class='glyphicon glyphicon-tasks'></i>&nbsp;&nbsp;Progresso da Execução</div><div class='panel-body'>";
             grid += "<div class='row'>";
-            grid += "<div class='col-sm-3'><div><b>Percentual estimado</b></div><div id='progress-percent'>?</div></div>";
-            grid += "<div class='col-sm-3'><div><b>Módulos com atividade</b></div><div id='progress-active'>?</div></div>";
+            grid += "<div class='col-sm-3'><div><b>Percentual</b></div><div id='progress-percent'>?</div></div>";
+            grid += "<div class='col-sm-3'><div><b>Módulos com saída</b></div><div id='progress-active'>?</div></div>";
             grid += "<div class='col-sm-3'><div><b>Módulos pendentes</b></div><div id='progress-pending'>?</div></div>";
             grid += "<div class='col-sm-3'><div><b>Fila de eventos</b></div><div id='progress-queue'>?</div></div>";
             grid += "</div>";
@@ -875,8 +1201,13 @@
             grid += "<div class='row'>";
             grid += "<div class='col-sm-4'><b>Em execução</b><div id='progress-running' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
             grid += "<div class='col-sm-4'><b>Com atividade recente</b><div id='progress-top-active' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
-            grid += "<div class='col-sm-4'><b>Ainda sem saída</b><div id='progress-pending-list' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "<div class='col-sm-4'><b>Sem saída / pendentes</b><div id='progress-pending-list' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
             grid += "</div>";
+            grid += "<div class='row' style='margin-top: 10px;'>";
+            grid += "<div class='col-sm-6'><b>Concluíram sem saída</b><div id='progress-completed-no-output' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "<div class='col-sm-6'><b>Módulos com erro</b><div id='progress-errors' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
+            grid += "</div>";
+            grid += "<div style='margin-top: 12px;'><b>Inventário por módulo</b><div id='progress-module-lifecycle' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
             grid += "<div style='margin-top: 12px;'><b>Último sinal do pipeline</b><div id='progress-latest-log' class='font-size-90-percent' style='margin-top: 6px;'>?</div></div>";
             grid += "</div></div></div></div>";
             grid += "<div class='row'><div class='col-sm-12'>";
@@ -948,10 +1279,31 @@
                                   }).join("<br>")
                                 : "Ainda sem módulos com saída registrada."
                         );
-                        $("#progress-pending-list").html(data.pending_module_names.length ? data.pending_module_names.join("<br>") : "Nenhum pendente visível.");
+                        var pendingLabel = data.pending_module_names.length ? data.pending_module_names.join("<br>") : "Nenhum pendente visível.";
+                        if (data.status == "FINISHED" && data.completed_without_output_module_names && data.completed_without_output_module_names.length) {
+                            pendingLabel = "Varredura concluída. Os módulos abaixo foram resolvidos sem produzir achados.";
+                        }
+                        $("#progress-pending-list").html(pendingLabel);
+                        $("#progress-completed-no-output").html(
+                            data.completed_without_output_module_names && data.completed_without_output_module_names.length
+                                ? data.completed_without_output_module_names.join("<br>")
+                                : "Nenhum módulo resolvido sem saída registrado."
+                        );
+                        $("#progress-errors").html(
+                            data.errored_module_names && data.errored_module_names.length
+                                ? data.errored_module_names.join("<br>")
+                                : "Nenhum erro de módulo registrado."
+                        );
+                        $("#progress-module-lifecycle").html(
+                            renderModuleLifecycleOverview(data.module_lifecycle || [])
+                        );
+                        sf.updateTooltips();
                         var latestLog = data.latest_log_message || "Sem mensagem recente.";
                         if (data.queue_preview) {
                             latestLog += "<br><br><b>Fila observada:</b> " + data.queue_preview;
+                        }
+                        if (data.completed_without_output_module_names && data.completed_without_output_module_names.length) {
+                            latestLog += "<br><br><b>Concluíram sem saída:</b> " + data.completed_without_output_module_names.join(", ");
                         }
                         if (data.errored_module_names.length) {
                             latestLog += "<br><br><b>Módulos com erro:</b> " + data.errored_module_names.join(", ");
@@ -1077,8 +1429,13 @@
             navTo("btn-correlations");
             refresh = function() { browseCorrelations(instanceId); }
             sf.fetchData('${docroot}/scancorrelations', {'id': instanceId}, function(data) {
-                if (data.length == 0) {
-                    table = "<div id='scansummary-content' class='alert alert-warning'><h4>No correlations.</h4>If the scan is still running please reload once it has completed.</div>";
+                var correlationRows = (data && data.correlations) || [];
+                var coverage = (data && data.coverage) || {};
+                if (correlationRows.length == 0) {
+                    var reasons = (coverage.reasons || []).length
+                        ? "<ul><li>" + coverage.reasons.map(escapeHtmlText).join("</li><li>") + "</li></ul>"
+                        : "<div class='text-muted'>Sem explicação adicional de cobertura.</div>";
+                    table = "<div id='scansummary-content' class='alert alert-warning'><h4>Sem correlações acionadas.</h4><div>" + escapeHtmlText(coverage.summary || "A varredura terminou sem correlações.") + "</div><div style='margin-top:8px;'><b>Leitura automática de cobertura</b>" + reasons + "</div></div>";
                     $("#loader").fadeOut(500);
                     $("#mainbody").append(table);
                     sf.updateTooltips();
@@ -1086,26 +1443,34 @@
                 }
                 var table = "<table id='scansummary-content' class='table table-bordered table-striped table-condensed tablesorter small'>";
                 table += "<thead><tr><th>Correlation</th><th>Risk</th><th>Data Elements</th></tr></thead><tbody>";
-                for (var i = 0; i < data.length; i++) {
+                for (var i = 0; i < correlationRows.length; i++) {
+                    var explanation = correlationRows[i].explanation || {};
+                    var confidence = explanation.practical_confidence || {};
+                    var preview = (explanation.event_preview || []).slice(0, 4).map(function(item) {
+                        return "<div><b>" + escapeHtmlText(item.type || "-") + "</b>: " + escapeHtmlText(item.data || "-") + " <span class='text-muted'>(" + escapeHtmlText(item.module || "-") + ")</span></div>";
+                    }).join("");
                     table += "<tr>";
-                    table += "<td><a style='cursor: pointer' onClick='toggleCorrelation(\"" + instanceId + "\",\"" + data[i][0] + "\")'>" + data[i][1] + "</a>&nbsp;&nbsp;";
-                    table += "<i class='glyphicon glyphicon-question-sign' style='color: #ccc' rel='tooltip' data-title=\"" + data[i][5] + "\"></i>";
+                    table += "<td><a style='cursor: pointer' onClick='toggleCorrelation(\"" + instanceId + "\",\"" + correlationRows[i].id + "\")'>" + correlationRows[i].title + "</a>&nbsp;&nbsp;";
+                    table += "<i class='glyphicon glyphicon-question-sign' style='color: #ccc' rel='tooltip' data-title=\"" + correlationRows[i].rule_descr + "\"></i>";
+                    table += "<div class='font-size-90-percent text-muted' style='margin-top:4px;'>" + escapeHtmlText(explanation.why_triggered || "") + "</div>";
+                    table += "<div class='font-size-90-percent' style='margin-top:4px;'><b>Confiança prática:</b> " + escapeHtmlText((confidence.label || "-")) + " <span class='text-muted'>(" + escapeHtmlText(String(confidence.score || 0)) + "/100)</span></div>";
+                    table += "<div class='font-size-90-percent'><b>Próximo passo:</b> " + escapeHtmlText(explanation.next_step || "") + "</div>";
                     table += "</td>";
-                    if (data[i][3] == "HIGH") {
+                    if (correlationRows[i].rule_risk == "HIGH") {
                         statusy = "alert-danger";
                     }
-                    if (data[i][3] == "MEDIUM") {
+                    if (correlationRows[i].rule_risk == "MEDIUM") {
                         statusy = "alert-warning";
                     }
-                    if (data[i][3] == "LOW") {
+                    if (correlationRows[i].rule_risk == "LOW") {
                         statusy = "alert-info";
                     }
-                    if (data[i][3] == "INFO") {
+                    if (correlationRows[i].rule_risk == "INFO") {
                         statusy = "alert-success";
                     }
-                    table += "<td><span class='badge " + statusy + "'>" + data[i][3] + "</span></td>";
-                    table += "<td>" + data[i][7] + "</td>";
-                    table += "</tr><tr class='hidden' id='corrwell_tr_" + data[i][0] + "'><td colspan=3 id='corrwell_td_" + data[i][0] + "'></td></tr>";
+                    table += "<td><span class='badge " + statusy + "'>" + correlationRows[i].rule_risk + "</span></td>";
+                    table += "<td>" + correlationRows[i].event_count + "<div class='font-size-90-percent text-muted' style='margin-top:4px;'>" + escapeHtmlText((explanation.event_types || []).join(", ")) + "</div></td>";
+                    table += "</tr><tr class='hidden' id='corrwell_tr_" + correlationRows[i].id + "'><td colspan=3 id='corrwell_td_" + correlationRows[i].id + "'><div class='sf-inline-card'><div><b>Eventos associados destacados</b></div>" + (preview || "<div class='text-muted'>Sem pré-visualização de eventos.</div>") + "<div style='margin-top:8px;'><b>Lógica da regra</b><pre class='table-border-bg-inherit' style='white-space: pre-wrap; margin-top: 6px;'>" + escapeHtmlText(correlationRows[i].rule_logic || "") + "</pre></div></div></td></tr>";
                 }
                 table += "</tbody></table>";
                 $("#loader").fadeOut(500);
@@ -1266,6 +1631,14 @@
                             generalOpsPanel += "<div class='col-sm-6'><label>Conclusão resumida</label><textarea id='case-verdict-summary' class='form-control' rows='3' placeholder='Registre aqui o veredito final, impacto, validade e próximos passos.'></textarea></div>";
                             generalOpsPanel += "<div class='col-sm-2'><label>&nbsp;</label><button class='btn btn-primary btn-block' onClick='saveCaseVerdict(\"${id}\")'>Salvar veredito</button></div>";
                             generalOpsPanel += "</div>";
+                            generalOpsPanel += "<div class='row' style='margin-top: 16px;'>";
+                            generalOpsPanel += "<div class='col-sm-12'><div class='sf-inline-card'><div class='row'><div class='col-sm-4'><label>Hipótese do analista</label><textarea id='scan-analyst-hypothesis' class='form-control' rows='3' placeholder='Qual é a hipótese principal desta varredura?'></textarea></div><div class='col-sm-4'><label>Últimos pivôs investigados</label><textarea id='scan-investigated-pivots' class='form-control' rows='3' placeholder='Um item por linha: ASN, domínio, IP, identidade, serviço...'></textarea></div><div class='col-sm-4'><label>Correlações já revisadas</label><textarea id='scan-reviewed-correlations' class='form-control' rows='3' placeholder='Um item por linha com título, regra ou decisão tomada.'></textarea></div></div>";
+                            generalOpsPanel += "<div class='row' style='margin-top:8px;'><div class='col-sm-6'><label>Decisões tomadas</label><textarea id='scan-decisions-taken' class='form-control' rows='3' placeholder='Registre decisões operacionais já tomadas para não recomeçar do zero.'></textarea></div><div class='col-sm-6'><label>Pendências abertas</label><textarea id='scan-open-questions' class='form-control' rows='3' placeholder='O que ainda falta confirmar, validar ou revisar?'></textarea></div></div>";
+                            generalOpsPanel += "<div class='row' style='margin-top:8px;'><div class='col-sm-9'><div id='scan-memory-updated' class='text-muted font-size-90-percent'></div><div id='scan-memory-risk-policy' class='text-muted font-size-90-percent' style='margin-top:4px;'></div></div><div class='col-sm-3'><button class='btn btn-default btn-block' onClick='saveScanMemory(\"${id}\")'>Salvar memória operacional</button></div></div></div></div>";
+                            generalOpsPanel += "</div>";
+                            generalOpsPanel += "<div class='row' style='margin-top: 16px;'>";
+                            generalOpsPanel += "<div class='col-sm-12'><div class='sf-inline-card'><div class='row'><div class='col-sm-9'><b>Plano de reanálise assistida</b><div class='text-muted font-size-90-percent' style='margin-top:4px;'>A IA avalia cobertura, sugere módulos adicionais ou remoções e orienta a próxima execução. A decisão final continua sendo do operador.</div></div><div class='col-sm-3'><button class='btn btn-info btn-block' onClick='requestScanReanalysisPlan(\"${id}\")'>Planejar reanálise com IA</button></div></div><div id='scan-ai-reanalysis-plan' style='margin-top:10px;'><div class='text-muted'>Nenhum plano solicitado ainda.</div></div></div></div>";
+                            generalOpsPanel += "</div>";
                             generalOpsPanel += "</div></div>";
 
                             var workbench = "<div id='finding-workbench' class='panel panel-default' style='margin: 8px 0 4px 0;'>";
@@ -1281,8 +1654,11 @@
                             workbench += "<div class='col-sm-6'><label>Veredito do achado</label><select id='finding-analyst-verdict' class='form-control'></select></div>";
                             workbench += "</div></div></div>";
                             workbench += "<div style='margin-top:12px;'><label>Notas do analista</label><textarea id='finding-notes' class='form-control' rows='3' placeholder='Registre contexto, descarte, relevância, hipótese ou conclusão técnica.'></textarea></div>";
+                            workbench += "<div style='margin-top:12px;'><label>Política de risco por ação</label><div id='finding-action-risk-policy' class='font-size-90-percent text-muted' style='margin-top:8px;'></div></div>";
                             workbench += "<div class='btn-toolbar' style='margin-top:12px;'><div class='btn-group'><button class='btn btn-primary' onClick='saveFindingState(\"${id}\")'>Salvar classificação</button><button class='btn btn-warning' onClick='validateFinding(\"${id}\")'>Executar validação segura</button><button class='btn btn-info' onClick='requestFindingAiAssist(\"${id}\")'>Análise Assistida por IA</button><button class='btn btn-default' onClick='applyAiSuggestions()'>Usar sugestões</button></div></div>";
                             workbench += "<div style='margin-top:12px;'><label>Assistente local</label><div id='finding-ai-config-status' class='font-size-90-percent text-muted'></div><div id='finding-ai-analysis' style='margin-top:8px;'></div></div>";
+                            workbench += "<div style='margin-top:12px;'><label>Security Loop</label><div id='finding-security-loop' style='margin-top:8px;'></div></div>";
+                            workbench += "<div style='margin-top:12px;'><label>Correlações do achado</label><div id='finding-correlation-list' style='margin-top:8px;'></div></div>";
                             workbench += "<hr><div class='row'><div class='col-sm-4'><label>Tipo de evidência</label><select id='finding-evidence-type' class='form-control'><option value='nota'>Nota</option><option value='url'>URL</option><option value='evidencia_tecnica'>Evidência técnica</option><option value='ioc'>IOC</option><option value='impacto'>Impacto</option></select></div>";
                             workbench += "<div class='col-sm-8'><label>Título</label><input id='finding-evidence-title' class='form-control' type='text' placeholder='Ex.: Screenshot da exposição, resposta HTTP 200, banner do serviço'></div></div>";
                             workbench += "<div style='margin-top:8px;'><label>Conteúdo</label><textarea id='finding-evidence-content' class='form-control' rows='3' placeholder='Cole aqui a evidência textual, URL, observação técnica, resposta resumida ou justificativa.'></textarea></div>";

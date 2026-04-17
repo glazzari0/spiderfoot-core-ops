@@ -1,0 +1,24 @@
+id: affiliate_ip_surface_large
+version: 1
+meta:
+  name: Large adjacent IP surface discovered
+  description: >
+    A single target IP led to a large number of affiliated IP addresses.
+
+    This usually indicates a broad adjacent network surface around the
+    target that deserves attention, especially when the scan goal was a
+    focused IP investigation.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: AFFILIATE_IPADDR
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: data
+    count_unique_only: true
+    minimum: 10
+headline: "Large adjacent IP surface discovered around target IP: {source.data}"

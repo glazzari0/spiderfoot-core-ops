@@ -1,0 +1,35 @@
+id: username_only_from_darknet_mention
+version: 1
+meta:
+  name: Username only from darknet mention
+  description: >
+    A username was found in darknet mention content but nowhere else in
+    the scan.
+
+    Since the username was not corroborated by other sources, it may
+    represent a specialized alias, a targeted mention or a lead that
+    should be validated carefully.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: USERNAME
+      - method: exact
+        field: source.type
+        value:
+          - DARKNET_MENTION_CONTENT
+  - collect:
+      - method: exact
+        field: type
+        value: USERNAME
+      - method: exact
+        field: source.type
+        value:
+          - not DARKNET_MENTION_CONTENT
+aggregation:
+  field: data
+analysis:
+  - method: first_collection_only
+    field: data
+headline: "Username found only in darknet mention: {data}"

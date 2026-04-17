@@ -1,0 +1,24 @@
+id: netblock_member_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Netblock membership confirmed by multiple modules
+  description: >
+    The same netblock membership relationship was reported by multiple
+    modules.
+
+    This helps distinguish stronger network ownership or attribution
+    evidence from relationships seen by only a single source.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: NETBLOCK_MEMBER
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Netblock membership confirmed by multiple modules: {data}"

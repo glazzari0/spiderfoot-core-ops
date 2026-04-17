@@ -83,6 +83,9 @@ def main() -> None:
         '_ai_auto_verdict_suggestions': True,
         '_ai_retrain_interval_hours': 24,
         '_ai_max_findings_per_analysis': 250,
+        '_security_loop_enabled': True,
+        '_security_loop_max_steps': 4,
+        '_security_loop_auto_evidence': True,
     }
 
     sfOptdescs = {
@@ -112,6 +115,9 @@ def main() -> None:
         '_ai_auto_verdict_suggestions': "Generate assisted final verdict suggestions using local models and evidence context.",
         '_ai_retrain_interval_hours': "How often local machine learning models should be retrained from accumulated analyst feedback.",
         '_ai_max_findings_per_analysis': "Maximum number of findings to include in a single AI-assisted analysis context.",
+        '_security_loop_enabled': "Enable the session-based Security Loop for safe finding validation and evidence generation.",
+        '_security_loop_max_steps': "Maximum number of safe validation steps to execute in a single finding validation session.",
+        '_security_loop_auto_evidence': "Automatically store a session summary as evidence after the Security Loop completes.",
         '_modulesenabled': "Modules enabled for the scan."  # This is a hack to get a description for an option not actually available.
     }
 

@@ -44,8 +44,9 @@ from sfscan import startSpiderFootScanner
 
 from spiderfoot import SpiderFootDb
 from spiderfoot import SpiderFootHelpers
+from spiderfoot import SecurityValidationLoop
 from spiderfoot import __version__
-from spiderfoot.ai import FindingAiAssistant
+from spiderfoot.ai import FindingAiAssistant, ScanReanalysisPlanner
 from spiderfoot.ai.ollama_client import OllamaClient
 from spiderfoot.geolite import GeoLiteWorkspace
 from spiderfoot.logger import logListenerSetup, logWorkerSetup
@@ -95,7 +96,14 @@ class SpiderFootWebUi:
         self.config = sf.configUnserialize(dbh.configGet(), self.defaultConfig)
         self.geolite_workspace = GeoLiteWorkspace(Path(__file__).resolve().parent / "Geolite")
         self.finding_validator_engine = FindingValidatorEngine()
+        max_steps = self.config.get("_security_loop_max_steps", 4)
+        try:
+            max_steps = int(max_steps)
+        except (TypeError, ValueError):
+            max_steps = 4
+        self.security_validation_loop = SecurityValidationLoop(self.finding_validator_engine, max_steps=max_steps)
         self.finding_ai_assistant = FindingAiAssistant(self.config)
+        self.scan_ai_planner = ScanReanalysisPlanner(self.config)
 
         # Set up logging
         if loggingQueue is None:
@@ -446,6 +454,7 @@ class SpiderFootWebUi:
         state = dbh.findingStateGet(id, resulthash)
         evidence = dbh.findingEvidenceList(id, resulthash)
         validations = dbh.validationRunList(id, resulthash)
+        correlations = dbh.findingCorrelationList(id, resulthash)
 
         return {
             "dbh": dbh,
@@ -453,6 +462,287 @@ class SpiderFootWebUi:
             "state": state,
             "evidence_rows": evidence,
             "validation_rows": validations,
+            "correlation_rows": correlations,
+        }
+
+    def _split_memory_items(self: 'SpiderFootWebUi', text: str) -> list:
+        return [line.strip("- \t\r") for line in str(text or "").splitlines() if line.strip()]
+
+    def _action_risk_policy(self: 'SpiderFootWebUi', action_id: str) -> dict:
+        policies = {
+            "view_finding": {
+                "category": "leitura_segura",
+                "label": "Leitura segura",
+                "description": "Consulta local a dados já coletados e persistidos no scan.",
+                "requires_confirmation": False,
+            },
+            "save_finding_state": {
+                "category": "leitura_segura",
+                "label": "Leitura segura",
+                "description": "Atualiza somente metadados operacionais do analista no banco local.",
+                "requires_confirmation": False,
+            },
+            "save_scan_memory": {
+                "category": "leitura_segura",
+                "label": "Leitura segura",
+                "description": "Registra contexto operacional do analista para retomada futura do scan.",
+                "requires_confirmation": False,
+            },
+            "add_evidence": {
+                "category": "leitura_segura",
+                "label": "Leitura segura",
+                "description": "Armazena evidência textual local sem interagir com o alvo.",
+                "requires_confirmation": False,
+            },
+            "finding_ai_assist": {
+                "category": "enriquecimento_externo",
+                "label": "Enriquecimento externo",
+                "description": "Consulta o assistente local configurado para sugerir triagem e próximos passos.",
+                "requires_confirmation": False,
+            },
+            "dns_lookup": {
+                "category": "enriquecimento_externo",
+                "label": "Enriquecimento externo",
+                "description": "Consulta resolução observacional para enriquecer o contexto do achado.",
+                "requires_confirmation": False,
+            },
+            "reverse_dns": {
+                "category": "enriquecimento_externo",
+                "label": "Enriquecimento externo",
+                "description": "Consulta DNS reverso como pivô de contexto para o indicador.",
+                "requires_confirmation": False,
+            },
+            "email_domain_resolution": {
+                "category": "enriquecimento_externo",
+                "label": "Enriquecimento externo",
+                "description": "Observa resolução do domínio do e-mail sem validar a caixa postal.",
+                "requires_confirmation": False,
+            },
+            "http_probe": {
+                "category": "validacao_ativa",
+                "label": "Validação ativa",
+                "description": "Realiza probe HTTP/HTTPS observacional no alvo para confirmar resposta.",
+                "requires_confirmation": True,
+            },
+            "tcp_common": {
+                "category": "validacao_ativa",
+                "label": "Validação ativa",
+                "description": "Realiza conexões seguras e limitadas em portas comuns para observar serviços expostos.",
+                "requires_confirmation": True,
+            },
+            "final_validation": {
+                "category": "leitura_segura",
+                "label": "Leitura segura",
+                "description": "Executa o validador consolidado do SpiderFoot sobre dados já coletados.",
+                "requires_confirmation": False,
+            },
+            "finding_validate": {
+                "category": "validacao_ativa",
+                "label": "Validação ativa",
+                "description": "Pode combinar probes observacionais com validação consolidada dependendo do tipo do achado.",
+                "requires_confirmation": True,
+            },
+        }
+        return policies.get(action_id, {
+            "category": "acao_controlada",
+            "label": "Ação controlada",
+            "description": "Ação operacional sem classificação específica definida.",
+            "requires_confirmation": False,
+        })
+
+    def _recommended_correlation_next_step(self: 'SpiderFootWebUi', event_types: list) -> str:
+        types = set(event_types or [])
+        if any(t in types for t in ["TCP_PORT_OPEN", "WEBSERVER_BANNER", "HTTP_CODE", "WEBSERVER_TECHNOLOGY", "SOFTWARE_USED"]):
+            return "Validar exposição do serviço e registrar evidência técnica do ativo associado."
+        if any("LEAKSITE" in t or "DARKNET" in t or "COMPROMISED" in t for t in types):
+            return "Consolidar a exposição em evidência, medir impacto e buscar confirmação cruzada da identidade afetada."
+        if any(t in types for t in ["EMAILADDR", "HUMAN_NAME", "USERNAME", "PHONE_NUMBER", "SOCIAL_MEDIA", "ACCOUNT_EXTERNAL_OWNED", "PUBLIC_CODE_REPO"]):
+            return "Fazer pivot seguro na identidade relacionada e verificar se há confirmação por múltiplas fontes."
+        if any(t in types for t in ["AFFILIATE_IPADDR", "IP_ADDRESS", "NETBLOCK_MEMBER", "BGP_AS_MEMBER"]):
+            return "Revisar contexto de infraestrutura, reputação e eventuais serviços expostos antes de concluir."
+        return "Revisar os eventos associados, registrar a interpretação do analista e decidir se o achado merece validação adicional."
+
+    def _practical_confidence_for_correlation(self: 'SpiderFootWebUi', rule_risk: str, event_count: int, unique_types: int) -> dict:
+        risk = str(rule_risk or "").upper()
+        score = {"INFO": 25, "LOW": 40, "MEDIUM": 60, "HIGH": 80, "CRITICAL": 90}.get(risk, 35)
+        score += min(max(int(event_count or 0), 0), 6) * 3
+        score += min(max(int(unique_types or 0), 0), 4) * 4
+        score = max(0, min(score, 100))
+
+        if score >= 80:
+            label = "alta"
+            rationale = "múltiplos sinais consistentes e risco elevado da regra"
+        elif score >= 60:
+            label = "moderada"
+            rationale = "sinal suficiente para triagem priorizada, mas ainda dependente de contexto"
+        else:
+            label = "baixa"
+            rationale = "sinal analítico útil, porém mais sujeito a contexto incompleto ou falso positivo"
+
+        return {"score": score, "label": label, "rationale": rationale}
+
+    def _build_correlation_explanation(self: 'SpiderFootWebUi', dbh: SpiderFootDb, scan_id: str, corr_row: tuple) -> dict:
+        events = dbh.scanResultEvent(scan_id, correlationId=corr_row[0]) or []
+        event_types = []
+        event_preview = []
+        seen_types = set()
+
+        for row in events[:6]:
+            event_type = row[4]
+            if event_type and event_type not in seen_types:
+                seen_types.add(event_type)
+                event_types.append(event_type)
+            event_preview.append({
+                "type": row[4],
+                "data": str(row[1] or "").replace("<SFURL>", "").replace("</SFURL>", ""),
+                "module": row[3],
+                "source": str(row[2] or "").replace("<SFURL>", "").replace("</SFURL>", ""),
+            })
+
+        confidence = self._practical_confidence_for_correlation(corr_row[3], corr_row[7], len(seen_types))
+        why_triggered = (
+            f"A correlação '{corr_row[4]}' foi gerada porque a regra encontrou um padrão compatível com "
+            f"{corr_row[7]} evento(s) associado(s) ao scan. {corr_row[5]}"
+        )
+
+        return {
+            "why_triggered": why_triggered,
+            "event_count": corr_row[7],
+            "event_types": event_types,
+            "event_preview": event_preview,
+            "practical_confidence": confidence,
+            "next_step": self._recommended_correlation_next_step(event_types),
+        }
+
+    def _correlation_coverage_summary(self: 'SpiderFootWebUi', scan_id: str, dbh: SpiderFootDb) -> dict:
+        type_rows = dbh.scanResultSummary(scan_id, by="type") or []
+        type_counts = {row[0]: row[3] for row in type_rows if row and row[0] != "ROOT"}
+        present_types = set(type_counts.keys())
+        scan_config = dbh.scanConfigGet(scan_id) or {}
+        enabled_modules = scan_config.get('_modulesenabled', '')
+        if isinstance(enabled_modules, str):
+            enabled_modules = [m for m in enabled_modules.split(',') if m]
+        elif not isinstance(enabled_modules, list):
+            enabled_modules = []
+
+        ip_signals = any(t in present_types for t in ["AFFILIATE_IPADDR", "IP_ADDRESS", "NETBLOCK_MEMBER", "BGP_AS_MEMBER"])
+        web_signals = any(t in present_types for t in [
+            "INTERNET_NAME", "DOMAIN_NAME", "WEBSERVER_BANNER", "HTTP_CODE", "TCP_PORT_OPEN", "WEBSERVER_TECHNOLOGY"
+        ])
+        identity_signals = any(t in present_types for t in [
+            "EMAILADDR", "AFFILIATE_EMAILADDR", "HUMAN_NAME", "USERNAME", "PHONE_NUMBER", "SOCIAL_MEDIA", "ACCOUNT_EXTERNAL_OWNED"
+        ])
+        leak_signals = any("LEAKSITE" in t or "DARKNET" in t or "COMPROMISED" in t for t in present_types)
+        leak_modules_enabled = any(m in enabled_modules for m in [
+            "sfp_psbdmp", "sfp_wikileaks", "sfp_pastebin", "sfp_haveibeenpwned", "sfp_intelx", "sfp_ahmia", "sfp_torch"
+        ])
+
+        reasons = []
+        if ip_signals and not web_signals and not identity_signals:
+            reasons.append("Scan com perfil principalmente de IP, ASN ou netblock, com poucos eventos compatíveis com regras de hostname, web ou identidade.")
+        if not identity_signals:
+            reasons.append("Não houve sinais suficientes de identidade para acionar regras de e-mail, usernames, nomes, contas externas ou presença social.")
+        if not leak_signals:
+            if leak_modules_enabled:
+                reasons.append("Não foram coletados eventos de leak site, darknet ou indicadores comprometidos suficientes para disparar correlações de vazamento.")
+            else:
+                reasons.append("Não há módulos de leak ou darknet habilitados neste scan, então essa família de correlação não teve cobertura.")
+        if not web_signals and not any(t in present_types for t in ["INTERNET_NAME", "DOMAIN_NAME"]):
+            reasons.append("A varredura não gerou sinais relevantes de hostnames, domínios ou serviços web para sustentar correlações de superfície exposta.")
+        if not reasons:
+            reasons.append("O scan terminou sem combinações suficientes entre os dados coletados e as regras de correlação atualmente disponíveis.")
+
+        return {
+            "summary": "A varredura terminou sem correlações acionadas.",
+            "reasons": reasons[:4],
+            "scan_shape": {
+                "ip_infra": ip_signals,
+                "web_host": web_signals,
+                "identity": identity_signals,
+                "leak": leak_signals,
+            }
+        }
+
+    def _scan_module_catalog_for_ai(self: 'SpiderFootWebUi', enabled_modules: list) -> list:
+        module_status = self.module_api_status()
+        module_defs = self.config.get('__modules__', {}) or {}
+        catalog = []
+        for mod_id, mod_info in module_defs.items():
+            if mod_id in ["sfp__stor_db", "sfp__stor_stdout"]:
+                continue
+            status = module_status.get(mod_id, {})
+            catalog.append({
+                "id": mod_id,
+                "name": mod_info.get("name", mod_id),
+                "description": mod_info.get("descr", ""),
+                "enabled": mod_id in enabled_modules,
+                "available": status.get("available", True),
+                "availability_reason": status.get("reason", ""),
+            })
+        return catalog
+
+    def _build_scan_reanalysis_context(self: 'SpiderFootWebUi', scan_id: str) -> dict:
+        dbh = SpiderFootDb(self.config)
+        scan_info = dbh.scanInstanceGet(scan_id)
+        if not scan_info:
+            raise ValueError("Varredura não encontrada.")
+
+        scan_config = dbh.scanConfigGet(scan_id) or {}
+        enabled_modules = scan_config.get('_modulesenabled', '')
+        if isinstance(enabled_modules, str):
+            enabled_modules = [m for m in enabled_modules.split(',') if m and m not in ["sfp__stor_db", "sfp__stor_stdout"]]
+        elif not isinstance(enabled_modules, list):
+            enabled_modules = []
+
+        type_summary = dbh.scanResultSummary(scan_id, by="type") or []
+        top_types = []
+        for row in type_summary[:15]:
+            if row[0] == "ROOT":
+                continue
+            top_types.append({
+                "type": row[0],
+                "label": row[1],
+                "last_seen": row[2],
+                "total": row[3],
+                "unique": row[4],
+            })
+
+        correlations = dbh.scanCorrelationList(scan_id) or []
+        operational_summary = dbh.scanFindingOperationalSummary(scan_id)
+        memory = dbh.operationalMemoryGet(scan_id)
+        progress = self.scan_progress_summary(scan_id)
+        coverage = self._correlation_coverage_summary(scan_id, dbh)
+
+        return {
+            "scan": {
+                "id": scan_id,
+                "name": scan_info[0],
+                "target": scan_info[1],
+                "status": scan_info[5],
+            },
+            "execution": {
+                "progress_percent": progress.get("progress_percent", 0),
+                "active_modules": progress.get("active_modules", 0),
+                "pending_modules": progress.get("pending_modules", 0),
+                "errored_modules": progress.get("errored_module_names", []),
+                "modules_with_output": progress.get("top_active_modules", []),
+            },
+            "top_event_types": top_types,
+            "correlations": [
+                {
+                    "title": row[1],
+                    "rule_id": row[2],
+                    "risk": row[3],
+                    "rule_name": row[4],
+                    "description": row[5],
+                    "event_count": row[7],
+                } for row in correlations[:12]
+            ],
+            "coverage": coverage,
+            "operational_summary": operational_summary,
+            "operational_memory": memory,
+            "enabled_modules": enabled_modules,
+            "module_catalog": self._scan_module_catalog_for_ai(enabled_modules),
         }
 
     def scan_presets(self: 'SpiderFootWebUi') -> list:
@@ -678,7 +968,7 @@ class SpiderFootWebUi:
 
         modules_with_results = sorted(set(modules_with_results))
 
-        recent_logs = dbh.scanLogs(scan_id, limit=100) or []
+        recent_logs = dbh.scanLogs(scan_id, limit=500) or []
         recent_logs = list(reversed(recent_logs))
         latest_log_message = ""
         queue_total = None
@@ -686,6 +976,7 @@ class SpiderFootWebUi:
         running_modules = []
         errored_modules = []
         loaded_modules = []
+        telemetry_by_module = {}
 
         for log_row in recent_logs:
             message = str(log_row[3] or "")
@@ -709,34 +1000,170 @@ class SpiderFootWebUi:
                 queue_total = int(queued_match.group(1).replace(',', ''))
                 queue_preview = queued_match.group(2).strip()
 
+            telemetry_match = re.search(r"^Module telemetry: module=([a-zA-Z0-9_]+) state=([a-z_]+)(.*)$", message)
+            if telemetry_match:
+                mod = telemetry_match.group(1).strip()
+                state = telemetry_match.group(2).strip()
+                tail = telemetry_match.group(3).strip()
+                telemetry_by_module[mod] = {
+                    "state": state,
+                    "raw": tail,
+                }
+
         loaded_modules = sorted(set(loaded_modules))
         errored_modules = sorted(set(errored_modules))
+        running_modules = sorted(set(running_modules))
 
+        def parse_telemetry_tail(raw_tail: str) -> dict:
+            parsed = {}
+            for token in (raw_tail or "").split():
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                parsed[key.strip()] = value.strip().rstrip(",")
+            return parsed
+
+        telemetry_loaded_modules = sorted([m for m, data in telemetry_by_module.items() if data["state"] in [
+            "loaded", "received_event", "produced_output", "finished_with_output", "finished_no_output", "errored"
+        ]])
+        telemetry_output_modules = sorted([m for m, data in telemetry_by_module.items() if data["state"] in [
+            "produced_output", "finished_with_output"
+        ]])
+        telemetry_finished_no_output_modules = sorted([m for m, data in telemetry_by_module.items() if data["state"] == "finished_no_output"])
+        telemetry_errored_modules = sorted([m for m, data in telemetry_by_module.items() if data["state"] == "errored"])
+
+        if telemetry_loaded_modules:
+            loaded_modules = sorted(set(loaded_modules + telemetry_loaded_modules))
+        if telemetry_output_modules:
+            modules_with_results = sorted(set(modules_with_results + telemetry_output_modules))
+        if telemetry_errored_modules:
+            errored_modules = sorted(set(errored_modules + telemetry_errored_modules))
+
+        scan_status = str(scan_info[5] or "").strip().upper()
+        terminal_status = scan_status in ["FINISHED", "ABORTED", "ERROR-FAILED"]
         total_modules = len(enabled_modules)
-        active_modules = len([m for m in modules_with_results if m in enabled_modules])
-        loaded_count = len([m for m in loaded_modules if m in enabled_modules]) or total_modules
-        progress_base = loaded_count or total_modules or 1
-        progress_percent = int(round((active_modules / progress_base) * 100)) if progress_base else 0
-        progress_percent = max(0, min(progress_percent, 100))
+        loaded_enabled_modules = sorted(set([m for m in loaded_modules if m in enabled_modules]))
+        produced_output_modules = sorted(set([m for m in modules_with_results if m in enabled_modules]))
+        errored_enabled_modules = sorted(set([m for m in errored_modules if m in enabled_modules]))
+        running_enabled_modules = sorted(set([m for m in running_modules if m in enabled_modules]))
+        if terminal_status:
+            # "Modules running: ..." comes from historical log snapshots.
+            # Once the scan is terminal, no module should remain marked as running.
+            running_enabled_modules = []
 
-        pending_modules = [m for m in enabled_modules if m not in modules_with_results]
-        if running_modules:
-            pending_modules = [m for m in pending_modules if m not in running_modules]
+        completed_without_output_modules = []
+        if terminal_status:
+            completed_without_output_modules = sorted(set(
+                [m for m in telemetry_finished_no_output_modules if m in enabled_modules] +
+                [
+                    m for m in loaded_enabled_modules
+                    if m not in produced_output_modules and m not in errored_enabled_modules
+                ]
+            ))
+
+        unresolved_modules = [
+            m for m in enabled_modules
+            if m not in produced_output_modules
+            and m not in errored_enabled_modules
+            and m not in completed_without_output_modules
+        ]
+        pending_modules = [m for m in unresolved_modules if m not in running_enabled_modules]
+
+        active_modules = len(produced_output_modules)
+        loaded_count = len(loaded_enabled_modules) or total_modules
+        resolved_modules = len(set(produced_output_modules + completed_without_output_modules + errored_enabled_modules))
+        progress_base = total_modules or loaded_count or 1
+
+        if terminal_status and scan_status == "FINISHED":
+            progress_percent = 100
+        else:
+            progress_percent = int(round((resolved_modules / progress_base) * 100)) if progress_base else 0
+            progress_percent = max(0, min(progress_percent, 100))
 
         top_active_modules = sorted(
-            [m for m in modules_with_results if m in enabled_modules],
+            produced_output_modules,
             key=lambda mod: module_result_counts.get(mod, {}).get("total", 0),
             reverse=True
         )[:8]
 
+        lifecycle_rank = {
+            "errored": 0,
+            "running": 1,
+            "received_event": 2,
+            "finished_no_output": 3,
+            "finished_with_output": 4,
+            "loaded": 5,
+            "pending": 6,
+        }
+
+        module_lifecycle = []
+        for mod in enabled_modules:
+            telemetry = telemetry_by_module.get(mod, {})
+            telemetry_metrics = parse_telemetry_tail(telemetry.get("raw", ""))
+            received_count = telemetry_metrics.get("received", "0")
+            produced_count = telemetry_metrics.get("produced", "0")
+            event_type = telemetry_metrics.get("event_type", "")
+            result_counts = module_result_counts.get(mod, {})
+
+            state = telemetry.get("state", "")
+            if mod in running_enabled_modules:
+                lifecycle = "running"
+            elif mod in errored_enabled_modules or state == "errored":
+                lifecycle = "errored"
+            elif mod in produced_output_modules or state in ["produced_output", "finished_with_output"]:
+                lifecycle = "finished_with_output"
+            elif mod in completed_without_output_modules or state == "finished_no_output":
+                lifecycle = "finished_no_output"
+            elif state == "received_event":
+                lifecycle = "received_event"
+            elif mod in loaded_enabled_modules or state == "loaded":
+                lifecycle = "loaded"
+            else:
+                lifecycle = "pending"
+
+            lifecycle_label = {
+                "running": "Em execução",
+                "errored": "Erro",
+                "finished_with_output": "Concluiu com saída",
+                "finished_no_output": "Concluiu sem saída",
+                "received_event": "Recebeu evento",
+                "loaded": "Carregado",
+                "pending": "Pendente",
+            }.get(lifecycle, lifecycle)
+
+            module_lifecycle.append({
+                "id": mod,
+                "name": module_names.get(mod, mod),
+                "lifecycle": lifecycle,
+                "lifecycle_label": lifecycle_label,
+                "lifecycle_rank": lifecycle_rank.get(lifecycle, 99),
+                "received_count": int(received_count) if str(received_count).isdigit() else 0,
+                "produced_count": int(produced_count) if str(produced_count).isdigit() else 0,
+                "result_total": result_counts.get("total", 0),
+                "result_unique": result_counts.get("unique", 0),
+                "last_event_type": event_type,
+            })
+
+        module_lifecycle = sorted(
+            module_lifecycle,
+            key=lambda item: (
+                item.get("lifecycle_rank", 99),
+                -item.get("received_count", 0),
+                -item.get("produced_count", 0),
+                item.get("name", ""),
+            )
+        )
+
         return {
-            "status": scan_info[5],
+            "status": scan_status,
             "total_modules": total_modules,
             "loaded_modules": len([m for m in loaded_modules if m in enabled_modules]) or total_modules,
             "active_modules": active_modules,
+            "resolved_modules": resolved_modules,
             "pending_modules": len(pending_modules),
-            "running_modules": running_modules,
-            "errored_modules": errored_modules,
+            "running_modules": running_enabled_modules,
+            "errored_modules": errored_enabled_modules,
+            "completed_without_output_modules": len(completed_without_output_modules),
             "queue_total": queue_total,
             "queue_preview": queue_preview,
             "progress_percent": progress_percent,
@@ -751,8 +1178,10 @@ class SpiderFootWebUi:
                 for mod in top_active_modules
             ],
             "pending_module_names": [module_names.get(mod, mod) for mod in pending_modules[:8]],
-            "running_module_names": [module_names.get(mod, mod) for mod in running_modules[:8]],
-            "errored_module_names": [module_names.get(mod, mod) for mod in errored_modules[:8]],
+            "running_module_names": [module_names.get(mod, mod) for mod in running_enabled_modules[:8]],
+            "errored_module_names": [module_names.get(mod, mod) for mod in errored_enabled_modules[:8]],
+            "completed_without_output_module_names": [module_names.get(mod, mod) for mod in completed_without_output_modules[:8]],
+            "module_lifecycle": module_lifecycle,
         }
 
     def searchBase(self: 'SpiderFootWebUi', id: str = None, eventType: str = None, value: str = None) -> list:
@@ -1442,7 +1871,7 @@ class SpiderFootWebUi:
         return templ.render(rerunscans=True, docroot=self.docroot, pageid="SCANLIST", version=__version__)
 
     @cherrypy.expose
-    def newscan(self: 'SpiderFootWebUi') -> str:
+    def newscan(self: 'SpiderFootWebUi', scanname: str = "", scantarget: str = "", selectedmods: str = "", selectedpreset: str = "", planner_note: str = "") -> str:
         """Configure a new scan.
 
         Returns:
@@ -1452,12 +1881,16 @@ class SpiderFootWebUi:
         types = dbh.eventTypes()
         module_status = self.module_api_status()
         type_status = self.type_availability(types)
+        if isinstance(selectedmods, str) and selectedmods:
+            selectedmods = [m for m in selectedmods.split(',') if m]
+        elif not isinstance(selectedmods, list):
+            selectedmods = []
         templ = Template(filename='spiderfoot/templates/newscan.tmpl', lookup=self.lookup)
         return templ.render(pageid='NEWSCAN', types=types, docroot=self.docroot,
-                            modules=self.config['__modules__'], scanname="",
-                            selectedmods="", selectedpreset="", presets=self.scan_presets(),
+                            modules=self.config['__modules__'], scanname=scanname,
+                            selectedmods=selectedmods, selectedpreset=selectedpreset, presets=self.scan_presets(),
                             module_status=module_status, type_status=type_status,
-                            scantarget="", version=__version__)
+                            scantarget=scantarget, planner_note=planner_note, version=__version__)
 
     @cherrypy.expose
     def clonescan(self: 'SpiderFootWebUi', id: str) -> str:
@@ -2502,19 +2935,31 @@ class SpiderFootWebUi:
         Returns:
             list: correlation result list
         """
-        retdata = []
-
         dbh = SpiderFootDb(self.config)
 
         try:
             corrdata = dbh.scanCorrelationList(id)
         except Exception:
-            return retdata
+            return {"correlations": [], "coverage": {}}
 
+        correlations = []
         for row in corrdata:
-            retdata.append([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]])
+            correlations.append({
+                "id": row[0],
+                "title": row[1],
+                "rule_id": row[2],
+                "rule_risk": row[3],
+                "rule_name": row[4],
+                "rule_descr": row[5],
+                "rule_logic": row[6],
+                "event_count": row[7],
+                "explanation": self._build_correlation_explanation(dbh, id, row),
+            })
 
-        return retdata
+        return {
+            "correlations": correlations,
+            "coverage": self._correlation_coverage_summary(id, dbh),
+        }
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
@@ -2574,13 +3019,49 @@ class SpiderFootWebUi:
             state = bundle["state"]
             evidence = bundle["evidence_rows"]
             validations = bundle["validation_rows"]
+            correlations = bundle.get("correlation_rows", [])
+            latest_agent_session = bundle["dbh"].agentSessionLatest(id, resulthash, SecurityValidationLoop.AGENT_TYPE)
+            latest_agent_steps = bundle["dbh"].agentSessionSteps(latest_agent_session["id"]) if latest_agent_session else []
         except Exception as e:
             return self.jsonify_error('500', f"Erro ao carregar o achado: {e}")
+
+        session_payload = None
+        if latest_agent_session:
+            try:
+                plan_bundle = json.loads(latest_agent_session.get("plan_json") or "{}")
+            except Exception:
+                plan_bundle = {}
+
+            session_payload = {
+                "id": latest_agent_session["id"],
+                "status": latest_agent_session["status"],
+                "summary": latest_agent_session["summary"],
+                "created": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest_agent_session["created"])),
+                "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest_agent_session["updated"])),
+                "plan_bundle": plan_bundle,
+                "steps": [
+                    {
+                        "id": row[0],
+                        "step_order": row[1],
+                        "tool_name": row[2],
+                        "action": row[3],
+                        "status": row[4],
+                        "observation": row[5],
+                        "created": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row[6]))
+                    } for row in latest_agent_steps
+                ]
+            }
 
         return {
             "finding": finding_data,
             "state": state,
             "validator_support": self.finding_validator_engine.describe_support(finding_data["event_type"] if finding_data else ""),
+            "action_risk_policy": {
+                "save_finding_state": self._action_risk_policy("save_finding_state"),
+                "add_evidence": self._action_risk_policy("add_evidence"),
+                "finding_validate": self._action_risk_policy("finding_validate"),
+                "finding_ai_assist": self._action_risk_policy("finding_ai_assist"),
+            },
             "evidence": [
                 {
                     "id": row[0],
@@ -2600,6 +3081,21 @@ class SpiderFootWebUi:
                     "created": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row[5]))
                 } for row in validations
             ],
+            "correlations": [
+                {
+                    "id": row[0],
+                    "title": row[1],
+                    "rule_id": row[2],
+                    "rule_risk": row[3],
+                    "rule_name": row[4],
+                    "rule_descr": row[5],
+                    "rule_logic": row[6],
+                    "explanation": self._build_correlation_explanation(bundle["dbh"], id, (
+                        row[0], row[1], row[2], row[3], row[4], row[5], row[6], len(bundle["dbh"].scanResultEvent(id, correlationId=row[0]) or [])
+                    )),
+                } for row in correlations
+            ],
+            "security_loop": session_payload,
             "labels": {
                 "triage_status": self.finding_status_labels(),
                 "relevance": self.finding_relevance_labels(),
@@ -2663,7 +3159,7 @@ class SpiderFootWebUi:
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
-    def findingvalidate(self: 'SpiderFootWebUi', id: str, resulthash: str) -> list:
+    def _findingvalidate_legacy(self: 'SpiderFootWebUi', id: str, resulthash: str) -> list:
         if not id or not resulthash:
             return ["ERROR", "Parâmetros obrigatórios ausentes."]
 
@@ -2679,6 +3175,38 @@ class SpiderFootWebUi:
             return ["ERROR", f"Falha ao validar achado: {e}"]
 
         return ["SUCCESS", validation["summary"]]
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def findingvalidate(self: 'SpiderFootWebUi', id: str, resulthash: str) -> list:
+        if not id or not resulthash:
+            return ["ERROR", "ParÃ¢metros obrigatÃ³rios ausentes."]
+
+        try:
+            if not bool(self.config.get("_security_loop_enabled", True)):
+                bundle = self._load_finding_bundle(id, resulthash)
+                validation = self._run_finding_validation(bundle["finding"]["event_type"], bundle["finding"]["data"])
+                bundle["dbh"].validationRunAdd(
+                    id, resulthash, validation["validator"], validation["status"], validation["summary"], validation["details"]
+                )
+                return ["SUCCESS", validation["summary"]]
+
+            bundle = self._load_finding_bundle(id, resulthash)
+            validation_bundle = self.security_validation_loop.run(
+                bundle["dbh"],
+                id,
+                resulthash,
+                bundle["finding"],
+                state=bundle["state"],
+                evidence_rows=bundle["evidence_rows"],
+                validation_rows=bundle["validation_rows"],
+                correlation_rows=bundle.get("correlation_rows", []),
+                auto_store_evidence=bool(self.config.get("_security_loop_auto_evidence", True)),
+            )
+        except Exception as e:
+            return ["ERROR", f"Falha ao validar achado: {e}"]
+
+        return ["SUCCESS", validation_bundle["final_validation"]["summary"]]
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
@@ -2763,6 +3291,71 @@ class SpiderFootWebUi:
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
+    def scanreanalysisplan(self: 'SpiderFootWebUi', id: str) -> dict:
+        if not id:
+            return self.jsonify_error('400', "Nenhuma varredura especificada.")
+
+        try:
+            context = self._build_scan_reanalysis_context(id)
+            analysis = self.scan_ai_planner.analyze_scan(context)
+
+            available_modules = {
+                item["id"]: item for item in context.get("module_catalog", []) if item.get("available", True)
+            }
+            enabled_modules = list(context.get("enabled_modules", []))
+            enabled_set = set(enabled_modules)
+
+            suggested_add = []
+            for mod in analysis.get("recommended_modules_add", []):
+                if mod in available_modules and mod not in suggested_add:
+                    suggested_add.append(mod)
+
+            suggested_remove = []
+            for mod in analysis.get("recommended_modules_remove", []):
+                if mod in enabled_set and mod not in suggested_remove:
+                    suggested_remove.append(mod)
+
+            final_modules = [m for m in enabled_modules if m not in suggested_remove]
+            for mod in suggested_add:
+                if mod not in final_modules:
+                    final_modules.append(mod)
+
+            planner_note = (
+                analysis.get("summary", "").strip()
+                or "Plano de reanálise assistida por IA preparado para revisão do operador."
+            )
+
+            apply_url = (
+                f"{self.docroot}/newscan?"
+                f"scanname={urllib.parse.quote(str(context['scan']['name']) + ' - Reanálise IA')}"
+                f"&scantarget={urllib.parse.quote(str(context['scan']['target']))}"
+                f"&selectedmods={urllib.parse.quote(','.join(final_modules))}"
+                f"&planner_note={urllib.parse.quote(planner_note)}"
+            )
+
+            return {
+                "status": "SUCCESS",
+                "analysis": analysis,
+                "current_modules": enabled_modules,
+                "recommended_modules_add": suggested_add,
+                "recommended_modules_remove": suggested_remove,
+                "final_modules": final_modules,
+                "apply_url": apply_url,
+                "module_details": {
+                    mod["id"]: {
+                        "name": mod.get("name", mod["id"]),
+                        "description": mod.get("description", ""),
+                        "available": mod.get("available", True),
+                        "availability_reason": mod.get("availability_reason", ""),
+                    } for mod in context.get("module_catalog", [])
+                },
+            }
+        except Exception as e:
+            self.log.error(f"Falha ao montar plano de reanálise por IA para {id}: {e}")
+            return self.jsonify_error('500', f"Falha ao montar plano de reanálise por IA: {e}")
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
     def scanopssummary(self: 'SpiderFootWebUi', id: str) -> dict:
         if not id:
             return self.jsonify_error('404', "Nenhuma varredura especificada.")
@@ -2771,12 +3364,30 @@ class SpiderFootWebUi:
         try:
             summary = dbh.scanFindingOperationalSummary(id)
             verdict = dbh.caseVerdictGet(id)
+            memory = dbh.operationalMemoryGet(id)
         except Exception as e:
             return self.jsonify_error('500', f"Erro ao montar resumo operacional: {e}")
 
         return {
             "summary": summary,
             "verdict": verdict,
+            "memory": {
+                "analyst_hypothesis": memory.get("analyst_hypothesis", ""),
+                "investigated_pivots": memory.get("investigated_pivots", ""),
+                "reviewed_correlations": memory.get("reviewed_correlations", ""),
+                "decisions_taken": memory.get("decisions_taken", ""),
+                "open_questions": memory.get("open_questions", ""),
+                "updated": memory.get("updated", 0),
+                "items": {
+                    "investigated_pivots": self._split_memory_items(memory.get("investigated_pivots", "")),
+                    "reviewed_correlations": self._split_memory_items(memory.get("reviewed_correlations", "")),
+                    "decisions_taken": self._split_memory_items(memory.get("decisions_taken", "")),
+                    "open_questions": self._split_memory_items(memory.get("open_questions", "")),
+                }
+            },
+            "action_risk_policy": {
+                "save_scan_memory": self._action_risk_policy("save_scan_memory"),
+            },
             "labels": {
                 "triage_status": self.finding_status_labels(),
                 "relevance": self.finding_relevance_labels(),
@@ -2784,6 +3395,34 @@ class SpiderFootWebUi:
                 "analyst_verdict": self.analyst_verdict_labels()
             }
         }
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def scanmemoryupdate(
+        self: 'SpiderFootWebUi',
+        id: str,
+        analyst_hypothesis: str = "",
+        investigated_pivots: str = "",
+        reviewed_correlations: str = "",
+        decisions_taken: str = "",
+        open_questions: str = "",
+    ) -> list:
+        if not id:
+            return ["ERROR", "Nenhuma varredura especificada."]
+
+        dbh = SpiderFootDb(self.config)
+        try:
+            dbh.operationalMemorySet(
+                id,
+                analystHypothesis=analyst_hypothesis,
+                investigatedPivots=investigated_pivots,
+                reviewedCorrelations=reviewed_correlations,
+                decisionsTaken=decisions_taken,
+                openQuestions=open_questions,
+            )
+        except Exception as e:
+            return ["ERROR", f"Falha ao salvar memória operacional: {e}"]
+        return ["SUCCESS", "Memória operacional atualizada com sucesso."]
 
     @cherrypy.expose
     @cherrypy.tools.json_out()

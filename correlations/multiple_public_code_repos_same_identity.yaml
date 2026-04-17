@@ -1,0 +1,33 @@
+id: multiple_public_code_repos_same_identity
+version: 1
+meta:
+  name: Multiple public code repositories linked to the same identity
+  description: >
+    Multiple public code repositories were linked back to the same
+    originating identity.
+
+    This can indicate a larger developer footprint and may justify
+    deeper review for exposed configuration, infrastructure references or
+    credential leakage.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: PUBLIC_CODE_REPO
+      - method: exact
+        field: source.type
+        value:
+          - USERNAME
+          - EMAILADDR
+          - AFFILIATE_EMAILADDR
+          - DOMAIN_NAME
+          - INTERNET_NAME
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: data
+    count_unique_only: true
+    minimum: 2
+headline: "Multiple public code repositories linked to identity: {source.data}"

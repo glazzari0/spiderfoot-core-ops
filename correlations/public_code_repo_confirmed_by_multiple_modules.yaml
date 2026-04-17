@@ -1,0 +1,25 @@
+id: public_code_repo_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Public code repository confirmed by multiple modules
+  description: >
+    A public code repository was independently identified by more than
+    one module.
+
+    Confirmation across collection methods can increase confidence that
+    the repository is truly relevant and worth reviewing for secrets,
+    infrastructure clues or developer attribution.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: PUBLIC_CODE_REPO
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Public code repository confirmed by multiple modules: {data}"

@@ -2,7 +2,7 @@
 
 ## 1. Objetivo deste documento
 
-Este documento descreve o estado atual do sistema SpiderFoot customizado neste repositório, com foco em:
+Este documento descreve o estado atual do SpiderFoot customizado neste repositório, com foco em:
 
 - arquitetura geral da solução
 - fluxo operacional atual
@@ -11,7 +11,7 @@ Este documento descreve o estado atual do sistema SpiderFoot customizado neste r
 - novas capacidades adicionadas ao produto original
 - direção operacional do sistema como plataforma individual de segurança
 
-Este arquivo existe para documentar a versão customizada usada neste ambiente.
+Este arquivo existe para documentar a versão customizada usada neste ambiente e deve refletir o comportamento real do projeto.
 
 ---
 
@@ -64,6 +64,8 @@ O SQLite segue sendo o backend principal, mas agora também armazena dados opera
 - evidências
 - execuções de validação
 - veredito final do caso
+- sessões operacionais de validação
+- resultados de correlação
 
 ---
 
@@ -71,14 +73,14 @@ O SQLite segue sendo o backend principal, mas agora também armazena dados opera
 
 Atualmente o sistema pode ser entendido em 8 blocos principais:
 
-1. Criação de varreduras
+1. criação de varreduras
 2. GeoIP / expansão de blocos CIDR
-3. Navegação e análise dos achados
-4. Correlação e grafo
-5. Configuração e presets
-6. Verificação de disponibilidade de módulos por API
-7. Gestão operacional de achados
-8. Tema, layout e tradução da interface
+3. navegação e análise dos achados
+4. correlação e grafo
+5. configuração e presets
+6. verificação de disponibilidade de módulos por API
+7. gestão operacional de achados
+8. tema, layout e tradução da interface
 
 ---
 
@@ -112,12 +114,12 @@ Foi criada uma nova área `GeoIP` na interface web, com objetivo de trabalhar co
 
 ### Fluxo atual de uso do GeoIP
 
-1. Selecionar `ASN Blocks`, `City Locations` e `Country Locations`
-2. Informar filtros para reduzir o universo de dados
-3. Selecionar o arquivo `City Blocks`
-4. Expandir as networks filtradas
-5. Escolher o que será disparado
-6. Iniciar as varreduras por IP
+1. selecionar `ASN Blocks`, `City Locations` e `Country Locations`
+2. informar filtros para reduzir o universo de dados
+3. selecionar o arquivo `City Blocks`
+4. expandir as networks filtradas
+5. escolher o que será disparado
+6. iniciar as varreduras por IP
 
 ### Proteções implementadas
 
@@ -247,7 +249,7 @@ Foi implementada lógica para reduzir erro de entrada quando o usuário esquece 
 
 ## 5.6. Tradução da interface para português do Brasil
 
-Foi feita uma tradução ampla da interface web.
+Foi feita uma tradução ampla da interface web, com padronização de textos operacionais em PT-BR e correções de encoding em telas críticas.
 
 ### Áreas traduzidas
 
@@ -257,7 +259,15 @@ Foi feita uma tradução ampla da interface web.
 - logs
 - configurações
 - GeoIP
+- dashboard de varredura
 - grande parte das mensagens e descrições da UI
+
+### Ajustes recentes de encoding e renderização
+
+- normalização de textos UTF-8 em templates principais
+- correção de trechos com mojibake em `scaninfo.tmpl`
+- correção do estado vazio de `Varreduras`
+- reforço de compatibilidade em JavaScript estático para evitar regressão de acentuação no navegador
 
 ### Observação
 
@@ -286,18 +296,19 @@ O layout padrão foi progressivamente modernizado.
 
 - tornar a interface menos poluída
 - reduzir tabelas quadradas e antigas
-- criar um modo escuro mais profissional
 - melhorar ergonomia em telas de análise
+- criar uma experiência mais informativa e menos textual
 
 ### Arquivos principais
 
 - [spiderfoot/static/css/spiderfoot.css](spiderfoot/static/css/spiderfoot.css)
 - [spiderfoot/static/css/dark.css](spiderfoot/static/css/dark.css)
+- [spiderfoot/templates/scanlist.tmpl](spiderfoot/templates/scanlist.tmpl)
+- [spiderfoot/templates/scaninfo.tmpl](spiderfoot/templates/scaninfo.tmpl)
 
 ### Melhorias visuais feitas
 
-- tema escuro em linha mais próxima de VS Code
-- superfícies com tons de cinza coerentes
+- superfícies com tons mais coerentes
 - bordas mais suaves
 - tabelas menos agressivas
 - contêineres arredondados
@@ -308,18 +319,19 @@ O layout padrão foi progressivamente modernizado.
   - `Configurações`
   - `Configurações da Varredura`
   - `GeoIP`
+  - `Dashboard da Varredura`
 
 ### Ajustes pontuais importantes
 
-- correção de mistura entre tema claro e escuro
-- correção de bordas claras vazando no dark mode
+- correção de inconsistências visuais entre áreas da interface
 - compactação visual da tela de `Varreduras`
+- substituição de blocos extensos de texto por painéis mais curtos e operacionais
 
 ---
 
-## 5.8. Progresso da execução da varredura
+## 5.8. Painel operacional e dashboard da varredura
 
-Foi adicionado um painel de acompanhamento do andamento da varredura.
+Foi adicionado um painel de acompanhamento do andamento da varredura e a tela de `scaninfo` passou a funcionar como um dashboard operacional.
 
 ### Objetivo
 
@@ -330,11 +342,35 @@ Dar ao operador uma noção operacional de:
 - módulos pendentes
 - fila de eventos
 - último sinal observável do pipeline
+- inventário resumido por módulo
+- situação geral de triagem, evidências e validações
 
 ### Arquivos principais
 
 - [sfwebui.py](sfwebui.py)
+- [sfscan.py](sfscan.py)
 - [spiderfoot/templates/scaninfo.tmpl](spiderfoot/templates/scaninfo.tmpl)
+
+### Evoluções recentes
+
+- criação de um resumo operacional consumido pela UI via `scanprogress`
+- dashboard com menos ruído visual e mais orientação analítica
+- bloco `Inventário por módulo` remodelado para scans grandes
+- substituição de listagens extensas por:
+  - contadores compactos
+  - distribuição visual por estado
+  - malha de módulos
+  - destaques operacionais
+- exibição mais clara de módulos com saída, sem saída, erro e pendências
+
+### Consistência de estados de execução
+
+Foi ajustada a lógica para evitar que varreduras terminadas continuem mostrando módulos em execução.
+
+Isso foi tratado em dois níveis:
+
+- no backend web, que agora normaliza o status do scan e zera módulos em execução quando o estado é terminal
+- no processo da varredura, que grava um snapshot terminal antes de marcar `FINISHED`
 
 ### Importante
 
@@ -354,18 +390,17 @@ O grafo original foi significativamente melhorado.
 ### Melhorias feitas
 
 - metadados por nó
-- tamanho do nó por conectividade/atividade
+- tamanho do nó por conectividade e atividade
 - layout inicial mais organizado
 - painel lateral `Leitura do Grafo`
-- legenda
-- detalhes no hover/clique
+- legenda explicativa por cor
+- detalhes no hover e clique
 - links clicáveis no painel lateral
 - remoção de marcações internas como `<SFURL>`
 - modos de rótulo:
   - `Auto`
   - `Todos`
   - `Ocultar`
-- correção de cores dos tipos de nó
 - classificação visual adicional por heurística
 
 ### Problemas corrigidos
@@ -375,6 +410,8 @@ O grafo original foi significativamente melhorado.
 - tags internas aparecendo no texto
 - links inválidos por `</SFURL>`
 - inconsistência entre cor da legenda e cor real dos nós
+- desaparecimento visual dos marcadores da legenda
+- quebra de JavaScript na tela do grafo por trecho corrompido de regex
 
 ---
 
@@ -405,6 +442,8 @@ Transformar o SpiderFoot de simples coletor de dados em uma ferramenta de:
 - `tbl_scan_finding_evidence`
 - `tbl_scan_validation_run`
 - `tbl_scan_case_verdict`
+- `tbl_agent_session`
+- `tbl_agent_session_step`
 
 ### O que passou a existir
 
@@ -520,6 +559,261 @@ O sistema já possui uma base ampla para expansão e um número inicial grande d
 
 ---
 
+## 5.12. Security Loop de validação
+
+Foi adicionado um núcleo inicial de orquestração inspirado no conceito de loop de agente, mas implementado integralmente no padrão Python do SpiderFoot.
+
+### Arquivos principais
+
+- [spiderfoot/agent.py](spiderfoot/agent.py)
+- [spiderfoot/db.py](spiderfoot/db.py)
+- [sfwebui.py](sfwebui.py)
+
+### Objetivo
+
+Evoluir a validação de achados de um passo único para uma sessão curta com:
+
+- plano de validação
+- memória de sessão
+- deduplicação de etapas recentes
+- execução observacional segura
+- persistência de evidência resumida
+
+### Componentes
+
+#### `SecurityValidationLoop`
+
+Orquestra o ciclo:
+
+- observar o achado
+- montar um plano curto
+- executar ferramentas seguras
+- consolidar a validação final
+- registrar sessão, passos, validação e evidência
+
+#### `ValidationPlanBuilder`
+
+Responsável por decidir a ordem e a prioridade do plano com base em:
+
+- risco do achado
+- estado de triagem
+- histórico de validações
+- presença de evidências
+- correlações associadas ao finding
+
+#### `SecurityToolExecutor`
+
+Executa o conjunto inicial de ferramentas seguras:
+
+- `dns_lookup`
+- `http_probe`
+- `reverse_dns`
+- `tcp_common`
+- `email_domain_resolution`
+- `final_validation`
+
+### Persistência
+
+#### `tbl_agent_session`
+
+Armazena:
+
+- tipo do agente
+- status da sessão
+- resumo final
+- plano serializado
+- timestamps
+
+#### `tbl_agent_session_step`
+
+Armazena:
+
+- ordem da etapa
+- ferramenta usada
+- ação planejada
+- status
+- observação serializada
+
+### Fluxo atual
+
+Ao acionar `findingvalidate`, o SpiderFoot agora:
+
+1. carrega o contexto do achado
+2. carrega correlações associadas ao achado
+3. consulta a sessão anterior mais recente para evitar repetições triviais
+4. monta um plano compatível com o tipo do achado e com a prioridade calculada
+5. ordena a validação com base em triagem, risco e correlações
+6. executa probes seguros por etapa
+7. roda o validador consolidado do SpiderFoot
+8. registra a sessão no banco
+9. grava uma evidência textual resumindo o que aconteceu
+
+### Estado atual e limites
+
+Este núcleo foi desenhado para triagem e validação técnica segura. Ele:
+
+- não reutiliza código externo ao projeto
+- permanece observacional e conservador
+- usa o banco SQLite do SpiderFoot como trilha de auditoria
+
+### Próximos passos naturais
+
+- planejar etapas com mais contexto de correlação
+- ampliar o catálogo de ferramentas seguras por família de achado
+- usar IA local apenas para priorização e sumarização do plano
+- expor a sessão do agente de forma mais detalhada na interface
+
+---
+
+## 5.13. Correlações expandidas
+
+O motor de correlação passou a cobrir melhor cenários operacionais que antes ficavam com pouco ou nenhum resultado, principalmente scans focados em IP, identidade, vazamentos e footprint público.
+
+### Arquivos principais
+
+- [correlations](correlations)
+- [sf.py](sf.py)
+- [spiderfoot/correlation.py](spiderfoot/correlation.py)
+
+### Direção adotada
+
+Em vez de criar regras para todo tipo de evento isolado, a expansão foi organizada por famílias analíticas:
+
+- IP e superfície exposta
+- domínio e hostname
+- identidade pessoal
+- vazamentos e leak sites
+- perfis sociais, contas externas e repositórios públicos
+
+### Cobertura adicionada
+
+#### IP e infraestrutura
+
+- confirmação de `AFFILIATE_IPADDR` por múltiplos módulos
+- destaque para superfícies grandes de IP afiliado
+- diferenciação de achados encontrados apenas por `dnsneighbor`
+- portas abertas e múltiplas portas no mesmo IP afiliado
+- stack de software associada a IP afiliado
+- confirmação de hostname afiliado e `NETBLOCK_MEMBER` por múltiplos módulos
+
+#### Identidade pessoal
+
+- e-mail ou telefone comprometido e também marcado como malicioso
+- e-mail ligado a múltiplos sinais de identidade
+- username reutilizado em múltiplas contas externas
+- nomes, usernames e telefones confirmados por mais de uma fonte
+- presença social ou de conta externa confirmada por múltiplos módulos
+
+#### Vazamentos e leak sites
+
+- URL de leak site confirmada por mais de um módulo
+- menções darknet confirmadas por múltiplas fontes
+- conteúdo de leak ou darknet com múltiplos tipos de identidade
+- usernames encontrados apenas em contexto darknet
+- identidade comprometida também ligada a artefatos de leak ou darknet
+
+#### Perfis sociais e code repos
+
+- repositórios públicos confirmados por mais de um módulo
+- múltiplos repositórios públicos ligados à mesma identidade
+- identidade com presença social e também presença em código público
+- username espalhado entre social, contas externas e repositórios
+
+### Resultado esperado
+
+O sistema continua dependente da qualidade dos dados coletados pelo scan, mas agora oferece uma camada analítica mais útil para:
+
+- scans de IP e netblock
+- investigações de identidade
+- casos com vazamentos
+- footprint público de usuários e organizações
+
+---
+
+## 5.14. Lista de varreduras e experiência operacional
+
+A tela de `Varreduras` foi ajustada para preservar melhor o contexto do operador durante o uso.
+
+### Arquivos principais
+
+- [spiderfoot/static/js/spiderfoot.js](spiderfoot/static/js/spiderfoot.js)
+- [spiderfoot/static/js/spiderfoot.scanlist.js](spiderfoot/static/js/spiderfoot.scanlist.js)
+- [spiderfoot/templates/scanlist.tmpl](spiderfoot/templates/scanlist.tmpl)
+
+### Melhorias recentes
+
+- remoção imediata de scans excluídos sem refresh completo da página
+- preservação do contexto visual ao excluir itens
+- renderização de estado vazio sem recarregar a tela inteira
+- correção do texto do estado vazio em português do Brasil
+
+### Benefício operacional
+
+O operador consegue acompanhar uma operação em andamento, excluir scans finalizados e manter o contexto visual da lista sem perder filtros ou precisar reiniciar a leitura da tela.
+
+---
+
+## 5.15. Reanálise assistida por IA
+
+Foi adicionada uma camada de planejamento assistido por IA para orientar uma nova execução da varredura sem retirar o controle final do operador.
+
+### Objetivo
+
+Usar IA local com Ollama para:
+
+- avaliar a cobertura do scan já concluído
+- sugerir módulos adicionais realmente úteis
+- sugerir remoção de módulos redundantes ou ruidosos
+- orientar as próximas etapas antes de uma reexecução
+- manter a decisão final e o ajuste fino nas mãos do operador
+
+### Arquivos principais
+
+- [sfwebui.py](sfwebui.py)
+- [spiderfoot/ai/assistant.py](spiderfoot/ai/assistant.py)
+- [spiderfoot/ai/ollama_client.py](spiderfoot/ai/ollama_client.py)
+- [spiderfoot/templates/scaninfo.tmpl](spiderfoot/templates/scaninfo.tmpl)
+- [spiderfoot/templates/newscan.tmpl](spiderfoot/templates/newscan.tmpl)
+
+### Como o fluxo funciona
+
+1. o operador solicita o plano de reanálise no dashboard da varredura
+2. o sistema monta um contexto com:
+   - status do scan
+   - cobertura por tipos de evento
+   - correlações encontradas
+   - resumo operacional
+   - memória operacional da varredura
+   - módulos já ativos
+   - módulos disponíveis e indisponíveis
+3. o Ollama analisa esse contexto
+4. a UI apresenta:
+   - leitura de cobertura
+   - módulos sugeridos para adicionar
+   - módulos sugeridos para remover
+   - etapas sugeridas
+   - evidências a revisar antes da reexecução
+   - orientação de decisão
+5. o operador abre a tela `Nova Varredura` já pré-preenchida com a seleção sugerida
+6. o operador revisa, ajusta e só então executa a nova varredura
+
+### Características importantes
+
+- não há reexecução automática cega
+- a IA não substitui a decisão final do analista
+- a sugestão vem acompanhada de racional e leitura de cobertura
+- a nova varredura continua totalmente editável antes da execução
+
+### Timeout e comportamento do Ollama
+
+O planner de reanálise pode exigir mais tempo que a análise assistida de um único achado, especialmente com modelos maiores. Por isso:
+
+- o fluxo de reanálise aceita timeout próprio
+- se esse timeout específico não estiver configurado, usa o timeout geral do Ollama
+- foi adotado um piso mínimo mais alto para evitar falhas prematuras enquanto o modelo ainda está carregando e processando o contexto
+
+---
+
 ## 6. Fluxo operacional atual
 
 ## 6.1. Fluxo de uma operação padrão
@@ -555,6 +849,7 @@ O sistema dispara módulos apropriados e coleta eventos.
 O operador observa:
 
 - progresso da execução
+- inventário resumido dos módulos
 - logs
 - correlações
 - resumo da varredura
@@ -567,7 +862,7 @@ Na aba `Navegar`, o operador:
 - abre a visão completa
 - seleciona um achado específico
 
-### Etapa 6. Painel de Análise do Achado
+### Etapa 6. Painel de análise do achado
 
 Ao abrir um achado, o operador pode:
 
@@ -606,34 +901,45 @@ O operador produz um veredito final, por exemplo:
 
 ## 6.2. Fluxo específico do GeoIP
 
-1. Selecionar arquivos de referência
-2. Aplicar filtros para reduzir o volume
-3. Escolher o arquivo de blocos
-4. Expandir
-5. Pré-visualizar com paginação
-6. Disparar varreduras por IP
-7. Tratar e validar os achados gerados
+1. selecionar arquivos de referência
+2. aplicar filtros para reduzir o volume
+3. escolher o arquivo de blocos
+4. expandir
+5. pré-visualizar com paginação
+6. disparar varreduras por IP
+7. tratar e validar os achados gerados
 
 ---
 
 ## 6.3. Fluxo específico de análise de achados
 
-1. Abrir uma varredura
-2. Ir para `Navegar`
-3. Selecionar o tipo de dado
-4. Abrir a visão completa
-5. Clicar no botão de análise do achado
-6. Preencher classificação
-7. Rodar validação segura
-8. Anexar evidências
-9. Registrar notas
-10. Atualizar o veredito do caso
+1. abrir uma varredura
+2. ir para `Navegar`
+3. selecionar o tipo de dado
+4. abrir a visão completa
+5. clicar no botão de análise do achado
+6. preencher classificação
+7. rodar validação segura
+8. anexar evidências
+9. registrar notas
+10. atualizar o veredito do caso
+
+---
+
+## 6.4. Fluxo específico de correlação e leitura operacional
+
+1. concluir ou acompanhar uma varredura
+2. revisar o painel `Resumo`
+3. observar o inventário por módulo e o último sinal do pipeline
+4. analisar correlações geradas por família de contexto
+5. usar o grafo como pivô de investigação
+6. descer para o detalhe dos achados quando a correlação apontar algo prioritário
 
 ---
 
 ## 7. Endpoints e lógica web adicionados
 
-Entre os principais pontos adicionados/alterados no backend web:
+Entre os principais pontos adicionados ou alterados no backend web:
 
 - `geoip`
 - `geoipdatasets`
@@ -646,6 +952,10 @@ Entre os principais pontos adicionados/alterados no backend web:
 - `findingvalidate`
 - `scanopssummary`
 - `scanverdictupdate`
+- `scanmemoryupdate`
+- `correlationrules`
+- `ollamastatus`
+- `scanreanalysisplan`
 
 Também houve alteração na lógica de:
 
@@ -653,6 +963,9 @@ Também houve alteração na lógica de:
 - `rerunscan`
 - `rerunscanmulti`
 - `opts`
+- `scandelete`
+- `scaninfo`
+- `newscan`
 
 ---
 
@@ -660,142 +973,56 @@ Também houve alteração na lógica de:
 
 Hoje o sistema já oferece vantagens importantes para o uso individual:
 
-- interface em português
+- interface em português do Brasil
+- correções de UTF-8 em telas críticas
 - presets com explicação
 - navegação mais clara
 - bloqueio de módulos inviáveis sem API
 - links diretos para configuração
-- tema claro e escuro mais coerentes
-- painéis mais modernos
+- lista de varreduras mais estável durante operações
+- dashboard de scan mais visual e menos tabelado
+- inventário compacto de módulos para scans grandes
+- progresso operacional mais confiável em scans finalizados
+- grafo mais legível e com legenda funcional
+- correlações mais úteis para IP, identidade, vazamentos e footprint público
+- memória operacional por varredura para retomada de análise
+- explicabilidade prática das correlações no dashboard
+- plano de reanálise assistida por IA com revisão humana antes da execução
 - análise de achados no mesmo fluxo da investigação
 - distinção entre coleta e conclusão analítica
 
 ---
 
-## 9. Limitações atuais
+## 9. Situação atual do projeto
 
-Apesar da evolução significativa, o sistema ainda está em uma fase intermediária.
+O projeto hoje já opera como uma versão fortemente customizada do SpiderFoot, com foco em:
 
-### Limitações presentes
+- operação individual
+- observabilidade da execução
+- triagem analítica
+- validação segura
+- redução de ruído visual
+- leitura operacional dos resultados
 
-- nem todos os tipos de achado possuem validação profunda
-- ainda não existe diff entre varreduras
-- ainda não existe watchlist/monitoramento recorrente completo
-- ainda não existe alerta automatizado por mudança
-- ainda não existe painel executivo separado do técnico
-- ainda não existe exploração controlada guiada para todos os cenários
-- ainda não existe exportação de dossiê investigativo completo consolidado
+O próximo estágio natural de evolução é aprofundar:
 
----
-
-## 10. Próximas evoluções naturais
-
-Com base no que já foi implementado, os próximos blocos de alto valor seriam:
-
-### 10.1. Monitoramento contínuo
-
-- watchlists
-- scans agendados
-- diff entre execuções
-- alertas por mudança
-
-### 10.2. Validadores avançados
-
-- takeover
-- cloud storage
-- TLS/certificados
-- banners e portas
-- vulnerabilidades
-- fingerprinting seguro
-
-### 10.3. Evidência e conclusão
-
-- exportação de dossiê
-- snapshots técnicos
-- timeline da investigação
-- pacote final de conclusão
-
-### 10.4. Pivô investigativo
-
-- abrir nova investigação a partir de um achado
-- cadeia de investigação entre scan e evidência
-- histórico por entidade
+- priorização automática de risco
+- explicabilidade das correlações na interface
+- enriquecimento de validadores especializados
+- maior cobertura de correlações por contexto operacional
+- refinamento contínuo da UX do dashboard
 
 ---
 
-## 11. Resumo executivo do que o sistema já se tornou
+## 10. Documentação interna relacionada
 
-Hoje este SpiderFoot customizado já não é apenas um scanner OSINT padrão.
+Além deste documento principal, o repositório agora possui documentação complementar para áreas específicas:
 
-Ele já funciona como:
+- [correlations/README.md](correlations/README.md)
+  descreve a estrutura das regras de correlação e observações do pacote expandido usado neste projeto
+- [spiderfoot/ai/README.md](spiderfoot/ai/README.md)
+  documenta a camada local de IA com Ollama, o assistente de achados e o planner de reanálise assistida
+- [test/README.md](test/README.md)
+  reúne instruções de testes, incluindo os pontos mais relevantes para validar dashboard, correlações e IA local
 
-- console unificado de coleta
-- painel de expansão GeoIP/ASN/City/Country
-- interface de presets operacionais
-- ambiente de análise de achados
-- sistema de triagem
-- base de validação segura
-- repositório de evidências
-- painel de conclusão analítica
-
-Em outras palavras, ele já começou a se transformar em uma plataforma individual de segurança com perfil de:
-
-- canivete suíço operacional
-- laboratório de investigação
-- suporte a OSINT
-- suporte a auditoria
-- suporte a validação técnica
-- suporte a análise defensiva e ofensiva
-
----
-
-## 12. Arquivos mais relevantes para manutenção futura
-
-### Backend
-
-- [sfwebui.py](sfwebui.py)
-- [spiderfoot/db.py](spiderfoot/db.py)
-- [spiderfoot/helpers.py](spiderfoot/helpers.py)
-- [spiderfoot/geolite.py](spiderfoot/geolite.py)
-- [spiderfoot/validators.py](spiderfoot/validators.py)
-
-### Templates
-
-- [spiderfoot/templates/HEADER.tmpl](spiderfoot/templates/HEADER.tmpl)
-- [spiderfoot/templates/newscan.tmpl](spiderfoot/templates/newscan.tmpl)
-- [spiderfoot/templates/geoip.tmpl](spiderfoot/templates/geoip.tmpl)
-- [spiderfoot/templates/scaninfo.tmpl](spiderfoot/templates/scaninfo.tmpl)
-- [spiderfoot/templates/opts.tmpl](spiderfoot/templates/opts.tmpl)
-- [spiderfoot/templates/scanlist.tmpl](spiderfoot/templates/scanlist.tmpl)
-
-### Frontend JS
-
-- [spiderfoot/static/js/spiderfoot.js](spiderfoot/static/js/spiderfoot.js)
-- [spiderfoot/static/js/spiderfoot.newscan.js](spiderfoot/static/js/spiderfoot.newscan.js)
-- [spiderfoot/static/js/spiderfoot.geoip.js](spiderfoot/static/js/spiderfoot.geoip.js)
-- [spiderfoot/static/js/spiderfoot.opts.js](spiderfoot/static/js/spiderfoot.opts.js)
-- [spiderfoot/static/js/spiderfoot.scanlist.js](spiderfoot/static/js/spiderfoot.scanlist.js)
-
-### CSS
-
-- [spiderfoot/static/css/spiderfoot.css](spiderfoot/static/css/spiderfoot.css)
-- [spiderfoot/static/css/dark.css](spiderfoot/static/css/dark.css)
-
-### Scripts auxiliares
-
-- [Geolite/disparar_scans_por_ip.py](Geolite/disparar_scans_por_ip.py)
-
----
-
-## 13. Observação final
-
-Este documento reflete o estado atual da customização conhecida até este momento da evolução do sistema.
-
-Ele deve ser atualizado sempre que houver mudanças relevantes em:
-
-- fluxo operacional
-- novas áreas da interface
-- modelos de validação
-- estrutura do banco
-- mecanismos de monitoramento
-- capacidade de conclusão e evidência
+Esses documentos devem ser mantidos alinhados com este arquivo sempre que a arquitetura operacional ou a experiência da interface forem alteradas.

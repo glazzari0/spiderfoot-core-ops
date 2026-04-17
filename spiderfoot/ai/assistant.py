@@ -4,8 +4,8 @@ import re
 from .ollama_client import OllamaClient
 
 
-class FindingAiAssistant:
-    """AI-assisted analyst helper for finding triage."""
+class _BaseOllamaAssistant:
+    """Shared Ollama configuration checks and JSON parsing helpers."""
 
     def __init__(self, config: dict) -> None:
         self.config = config
@@ -40,6 +40,10 @@ class FindingAiAssistant:
             if match:
                 return json.loads(match.group(0))
             raise RuntimeError("O retorno do Ollama não veio em JSON válido.")
+
+
+class FindingAiAssistant(_BaseOllamaAssistant):
+    """AI-assisted analyst helper for finding triage."""
 
     def analyze_finding(self, finding: dict, state: dict, validations: list, evidence: list, labels: dict) -> dict:
         is_ready, message = self.is_configured()
@@ -131,5 +135,88 @@ class FindingAiAssistant:
             "evidence_gaps": parsed.get("evidence_gaps", []),
             "next_steps": parsed.get("next_steps", []),
             "operator_note_draft": parsed.get("operator_note_draft", ""),
+            "raw": parsed,
+        }
+
+
+class ScanReanalysisPlanner(_BaseOllamaAssistant):
+    """AI-assisted planner for scan reanalysis and module expansion."""
+
+    def analyze_scan(self, scan_context: dict) -> dict:
+        is_ready, message = self.is_configured()
+        if not is_ready:
+            raise RuntimeError(message)
+
+        timeout_seconds = self.config.get("_ai_ollama_reanalysis_timeout_seconds")
+        if timeout_seconds is None:
+            timeout_seconds = self.config.get("_ai_ollama_timeout_seconds", 180)
+        try:
+            timeout_seconds = float(timeout_seconds)
+        except (TypeError, ValueError):
+            timeout_seconds = 180.0
+        timeout_seconds = max(timeout_seconds, 420.0)
+
+        client = OllamaClient(self.config.get("_ai_ollama_base_url"), timeout=timeout_seconds)
+
+        system_prompt = (
+            "Você é um planejador local de reanálise do SpiderFoot Core-Ops. "
+            "Sua função é avaliar a cobertura de uma varredura, sugerir módulos adicionais ou remoções "
+            "e orientar a próxima reexecução sem decidir no lugar do operador. "
+            "Seja conservador, não invente fatos e retorne SOMENTE JSON válido."
+        )
+
+        payload = {
+            "scan_context": scan_context,
+            "required_output_schema": {
+                "summary": "string",
+                "confidence": "integer 0-100",
+                "reasoning": ["short bullet"],
+                "coverage_assessment": ["short bullet"],
+                "recommended_modules_add": ["module id"],
+                "recommended_modules_remove": ["module id"],
+                "suggested_steps": ["short bullet"],
+                "evidence_refresh_suggestions": ["short bullet"],
+                "operator_adjustment_notes": ["short bullet"],
+                "decision_guidance": "string"
+            }
+        }
+
+        prompt = (
+            "Analise a varredura abaixo e proponha um plano de reanálise assistida.\n"
+            "Regras:\n"
+            "- use apenas IDs de módulos presentes no catálogo informado\n"
+            "- só recomende remoção de módulos quando houver redundância clara ou ruído operacional\n"
+            "- priorize cobertura útil, não volume bruto\n"
+            "- respeite o fato de que a decisão final é do operador\n"
+            "- o resultado deve orientar uma nova execução editável pelo usuário\n\n"
+            f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
+        )
+
+        requested_model = self.config.get("_ai_ollama_chat_model")
+        raw_response = client.generate_json(
+            model=requested_model,
+            prompt=prompt,
+            system=system_prompt,
+            temperature=0.2,
+        )
+
+        parsed = self._extract_json(raw_response.get("response", ""))
+        resolved_model = raw_response.get("model") or requested_model
+
+        return {
+            "provider": "ollama",
+            "requested_model": requested_model,
+            "resolved_model": resolved_model,
+            "model": resolved_model,
+            "summary": parsed.get("summary", ""),
+            "confidence": parsed.get("confidence", 0),
+            "reasoning": parsed.get("reasoning", []),
+            "coverage_assessment": parsed.get("coverage_assessment", []),
+            "recommended_modules_add": parsed.get("recommended_modules_add", []),
+            "recommended_modules_remove": parsed.get("recommended_modules_remove", []),
+            "suggested_steps": parsed.get("suggested_steps", []),
+            "evidence_refresh_suggestions": parsed.get("evidence_refresh_suggestions", []),
+            "operator_adjustment_notes": parsed.get("operator_adjustment_notes", []),
+            "decision_guidance": parsed.get("decision_guidance", ""),
             "raw": parsed,
         }

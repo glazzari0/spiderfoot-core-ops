@@ -1,0 +1,23 @@
+id: phone_number_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Phone number confirmed by multiple modules
+  description: >
+    A phone number was discovered by more than one module.
+
+    Cross-source confirmation makes the number more trustworthy as a
+    lead and may justify deeper validation or monitoring.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: PHONE_NUMBER
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Phone number confirmed by multiple modules: {data}"

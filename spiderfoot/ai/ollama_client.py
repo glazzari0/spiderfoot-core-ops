@@ -1,4 +1,5 @@
 import json
+import socket
 import urllib.error
 import urllib.request
 
@@ -25,6 +26,10 @@ class OllamaClient:
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="ignore")
             raise RuntimeError(f"Ollama retornou erro HTTP {e.code}: {detail}") from e
+        except (TimeoutError, socket.timeout) as e:
+            raise RuntimeError(
+                f"O Ollama excedeu o tempo limite de {self.timeout:.0f}s ao processar a solicitação."
+            ) from e
         except urllib.error.URLError as e:
             raise RuntimeError(
                 f"Não foi possível alcançar o Ollama em {self.base_url}. Verifique se o servidor local está ativo."
@@ -43,6 +48,10 @@ class OllamaClient:
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="ignore")
             raise RuntimeError(f"Ollama retornou erro HTTP {e.code}: {detail}") from e
+        except (TimeoutError, socket.timeout) as e:
+            raise RuntimeError(
+                f"O Ollama excedeu o tempo limite de {self.timeout:.0f}s ao processar a solicitação."
+            ) from e
         except urllib.error.URLError as e:
             raise RuntimeError(
                 f"NÃ£o foi possÃ­vel alcanÃ§ar o Ollama em {self.base_url}. Verifique se o servidor local estÃ¡ ativo."

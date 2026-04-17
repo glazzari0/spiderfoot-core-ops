@@ -1,0 +1,24 @@
+id: leaksite_url_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Leak site URL confirmed by multiple modules
+  description: >
+    A leak site URL was independently discovered by more than one
+    module.
+
+    Independent confirmation can reduce noise and increase confidence
+    that the leak artifact is genuinely relevant to the scan target.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: LEAKSITE_URL
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Leak site URL confirmed by multiple modules: {data}"

@@ -1,0 +1,24 @@
+id: username_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Username confirmed by multiple modules
+  description: >
+    A username was discovered by more than one module.
+
+    This raises confidence in the username and can make downstream
+    findings about accounts, profiles and code repositories more
+    actionable.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: USERNAME
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Username confirmed by multiple modules: {data}"

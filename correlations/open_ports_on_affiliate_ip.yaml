@@ -1,0 +1,21 @@
+id: open_ports_on_affiliate_ip
+version: 1
+meta:
+  name: Open TCP ports found on affiliated IP
+  description: >
+    One or more open TCP ports were observed on an affiliated IP address.
+
+    This helps surface adjacent systems that may expand the reachable
+    attack surface around the target.
+  risk: LOW
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: TCP_PORT_OPEN
+      - method: exact
+        field: source.type
+        value: AFFILIATE_IPADDR
+aggregation:
+  field: source.data
+headline: "Affiliated IP exposes one or more open TCP ports: {source.data}"

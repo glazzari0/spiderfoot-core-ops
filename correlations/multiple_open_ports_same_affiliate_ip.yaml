@@ -1,0 +1,26 @@
+id: multiple_open_ports_same_affiliate_ip
+version: 1
+meta:
+  name: Multiple open TCP ports on the same affiliated IP
+  description: >
+    The same affiliated IP address exposed multiple open TCP ports.
+
+    This often indicates a more interesting or valuable adjacent host
+    than one exposing only a single service.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: TCP_PORT_OPEN
+      - method: exact
+        field: source.type
+        value: AFFILIATE_IPADDR
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: data
+    count_unique_only: true
+    minimum: 3
+headline: "Affiliated IP exposes multiple open TCP ports: {source.data}"

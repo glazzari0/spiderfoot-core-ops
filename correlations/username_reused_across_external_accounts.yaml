@@ -1,0 +1,29 @@
+id: username_reused_across_external_accounts
+version: 1
+meta:
+  name: Username reused across multiple external accounts
+  description: >
+    A username was linked to multiple external accounts or very similar
+    external accounts.
+
+    Re-use across platforms can strengthen attribution and may reveal a
+    broader personal or operational footprint than initially expected.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - ACCOUNT_EXTERNAL_OWNED
+          - SIMILAR_ACCOUNT_EXTERNAL
+      - method: exact
+        field: source.type
+        value: USERNAME
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: data
+    count_unique_only: true
+    minimum: 2
+headline: "Username reused across multiple external accounts: {source.data}"

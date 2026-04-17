@@ -1,0 +1,31 @@
+id: username_spans_social_code_and_accounts
+version: 1
+meta:
+  name: Username spans social, code and external accounts
+  description: >
+    A single username was associated with a broader public footprint
+    spanning social media, code repositories or external accounts.
+
+    This can be especially useful for attribution and for identifying
+    where deeper review is likely to produce more context.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - SOCIAL_MEDIA
+          - PUBLIC_CODE_REPO
+          - ACCOUNT_EXTERNAL_OWNED
+          - SIMILAR_ACCOUNT_EXTERNAL
+      - method: exact
+        field: source.type
+        value: USERNAME
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: type
+    count_unique_only: true
+    minimum: 2
+headline: "Username spans social, code or external accounts: {source.data}"

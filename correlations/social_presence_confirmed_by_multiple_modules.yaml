@@ -1,0 +1,33 @@
+id: social_presence_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Social or external account presence confirmed by multiple modules
+  description: >
+    Social presence or external account ownership was reported by more
+    than one module for the same originating identity.
+
+    Independent confirmation can help separate strong attribution leads
+    from one-off or noisy platform matches.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - SOCIAL_MEDIA
+          - ACCOUNT_EXTERNAL_OWNED
+      - method: exact
+        field: source.type
+        value:
+          - EMAILADDR
+          - AFFILIATE_EMAILADDR
+          - HUMAN_NAME
+          - USERNAME
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Social or account presence confirmed for identity: {source.data}"

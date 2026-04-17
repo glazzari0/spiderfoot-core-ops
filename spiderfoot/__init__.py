@@ -1,4 +1,6 @@
 from .db import SpiderFootDb
+from .agent import SecurityValidationLoop
+from .agent import ValidationPlanBuilder
 from .event import SpiderFootEvent
 from .threadpool import SpiderFootThreadPool
 from .plugin import SpiderFootPlugin

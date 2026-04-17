@@ -1,0 +1,27 @@
+id: email_exposed_and_flagged_malicious
+version: 1
+meta:
+  name: Email address exposed and flagged as malicious
+  description: >
+    An email address was both reported in a breach and flagged as
+    malicious by a reputation source.
+
+    This combination is a stronger signal than either finding alone and
+    may indicate a high-risk account, credential abuse, phishing
+    activity or repeated fraud association.
+  risk: HIGH
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - EMAILADDR_COMPROMISED
+          - MALICIOUS_EMAILADDR
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: type
+    count_unique_only: true
+    minimum: 2
+headline: "Email address exposed and flagged as malicious: {source.data}"

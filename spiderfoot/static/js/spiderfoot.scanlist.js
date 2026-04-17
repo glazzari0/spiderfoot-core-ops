@@ -1,5 +1,6 @@
 globalTypes = null;
 globalFilter = null;
+globalScanData = [];
 lastChecked = null;
 
 function switchSelectAll() {
@@ -16,11 +17,11 @@ function filter(type) {
         return;
     }
     if (type == "running") {
-        showlist(["RUNNING", "STARTING", "STARTED", "INITIALIZING"], "Em execução");
+        showlist(["RUNNING", "STARTING", "STARTED", "INITIALIZING"], "Em execuÃ§Ã£o");
         return;
     }
     if (type == "finished") {
-        showlist(["FINISHED"], "Concluídas");
+        showlist(["FINISHED"], "ConcluÃ­das");
         return;
     }
     if (type == "failed") {
@@ -53,7 +54,7 @@ function stopScan(id) {
 function stopSelected() {
     ids = getSelected();
     if (!ids) {
-        alertify.message("Não foi possível parar as varreduras. Nenhuma varredura foi selecionada.");
+        alertify.message("NÃ£o foi possÃ­vel parar as varreduras. Nenhuma varredura foi selecionada.");
         return;
     }
 
@@ -66,27 +67,27 @@ function stopSelected() {
 function deleteScan(id) {
     alertify.confirm("Tem certeza de que deseja excluir esta varredura?",
     function(){
-        sf.deleteScan(id, reload);
+        sf.deleteScan(id, removeDeletedScansFromView);
     }).set({title:"Excluir varredura?"});
 }
 
 function deleteSelected() {
     ids = getSelected();
     if (!ids) {
-        alertify.message("Não foi possível excluir as varreduras. Nenhuma varredura foi selecionada.");
+        alertify.message("NÃ£o foi possÃ­vel excluir as varreduras. Nenhuma varredura foi selecionada.");
         return;
     }
 
     alertify.confirm("Tem certeza de que deseja excluir estas " + ids.length + " varreduras?<br/><br/>" + ids.join("<br/>"),
     function(){
-        sf.deleteScan(ids.join(','), reload);
+        sf.deleteScan(ids.join(','), removeDeletedScansFromView);
     }).set({title:"Excluir varreduras?"});
 }
 
 function rerunSelected() {
     ids = getSelected();
     if (!ids) {
-        alertify.message("Não foi possível executar novamente. Nenhuma varredura foi selecionada.");
+        alertify.message("NÃ£o foi possÃ­vel executar novamente. Nenhuma varredura foi selecionada.");
         return;
     }
 
@@ -122,7 +123,7 @@ function exportSelected(type) {
             efr.src = docroot + '/scanexportjsonmulti?ids=' + ids.join(',');
             break;
         default:
-            sf.log("Erro: tipo de exportação inválido: " + type);
+            sf.log("Erro: tipo de exportaÃ§Ã£o invÃ¡lido: " + type);
     }
     $("#loader").fadeOut(500);
 }
@@ -133,17 +134,43 @@ function reload() {
     return;
 }
 
+function renderEmptyScanState() {
+    $("#loader").fadeOut(500);
+    $("#scancontent-wrapper").remove();
+    $("#scancontent .scanlist-empty-state").remove();
+    welcome = "<div class='alert alert-info scanlist-empty-state'>";
+        welcome += "<h4>Nenhum hist&#243;rico de varreduras</h4><br>";
+        welcome += "No momento n&#227;o h&#225; hist&#243;rico de varreduras executadas. Clique em 'Nova Varredura' para iniciar uma nova an&#225;lise.";
+    welcome += "</div>";
+    $("#scancontent").append(welcome);
+}
+
+function removeDeletedScansFromView(deletedIds) {
+    var ids = deletedIds || [];
+    if (!ids.length) {
+        reload();
+        return;
+    }
+
+    globalScanData = (globalScanData || []).filter(function(item) {
+        return $.inArray(item[0], ids) === -1;
+    });
+
+    if (!globalScanData.length) {
+        renderEmptyScanState();
+        return;
+    }
+
+    showlisttable(globalTypes, globalFilter, globalScanData);
+}
+
 function showlist(types, filter) {
     globalTypes = types;
     globalFilter = filter;
     sf.fetchData(docroot + '/scanlist', null, function(data) {
+        globalScanData = data || [];
         if (data.length == 0) {
-            $("#loader").fadeOut(500);
-            welcome = "<div class='alert alert-info'>";
-            welcome += "<h4>Nenhum histórico de varreduras</h4><br>";
-            welcome += "No momento não há histórico de varreduras executadas. Clique em 'Nova Varredura' para iniciar uma nova análise."
-            welcome += "</div>";
-            $("#scancontent").append(welcome);
+            renderEmptyScanState();
             return;
         }
 
@@ -161,8 +188,8 @@ function showlisttable(types, filter, data) {
     buttons += "<button class='btn dropdown-toggle btn-default' data-toggle='dropdown'><span class='caret'></span></button>";
     buttons += "<ul class='dropdown-menu'>";
     buttons += "<li><a href='javascript:filter(\"all\")'>Nenhum</a></li>";
-    buttons += "<li><a href='javascript:filter(\"running\")'>Em execução</a></li>";
-    buttons += "<li><a href='javascript:filter(\"finished\")'>Concluídas</a></li>";
+    buttons += "<li><a href='javascript:filter(\"running\")'>Em execuÃ§Ã£o</a></li>";
+    buttons += "<li><a href='javascript:filter(\"finished\")'>ConcluÃ­das</a></li>";
     buttons += "<li><a href='javascript:filter(\"failed\")'>Falhas/Abortadas</a></li></ul>";
     buttons += "</div>";
 
@@ -189,7 +216,7 @@ function showlisttable(types, filter, data) {
 
     buttons += "</div>";
     var table = "<div class='sf-table-shell scanlist-shell'><table id='scanlist' class='table table-striped scanlist-table'>";
-    table += "<thead><tr><th class='sorter-false text-center'><input id='checkall' type='checkbox'></th> <th>Nome</th> <th>Alvo</th> <th>Início</th> <th >Fim</th> <th class='text-center'>Status</th> <th class='text-center'>Elementos</th><th class='text-center'>Correlações</th><th class='sorter-false text-center'>Ação</th> </tr></thead><tbody>";
+    table += "<thead><tr><th class='sorter-false text-center'><input id='checkall' type='checkbox'></th> <th>Nome</th> <th>Alvo</th> <th>InÃ­cio</th> <th >Fim</th> <th class='text-center'>Status</th> <th class='text-center'>Elementos</th><th class='text-center'>CorrelaÃ§Ãµes</th><th class='sorter-false text-center'>AÃ§Ã£o</th> </tr></thead><tbody>";
     filtered = 0;
     for (var i = 0; i < data.length; i++) {
         if (types != null && $.inArray(data[i][6], types)) {
@@ -256,6 +283,7 @@ function showlisttable(types, filter, data) {
 
     $("#loader").fadeOut(500);
     $("#scancontent-wrapper").remove();
+    $("#scancontent .scanlist-empty-state").remove();
     $("#scancontent").append("<div id='scancontent-wrapper'> " + buttons + table + "</div>");
     sf.updateTooltips();
     $("#scanlist").tablesorter().tablesorterPager({

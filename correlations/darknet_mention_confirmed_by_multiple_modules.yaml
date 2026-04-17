@@ -1,0 +1,24 @@
+id: darknet_mention_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Darknet mention confirmed by multiple modules
+  description: >
+    A darknet mention URL was independently discovered by more than one
+    module.
+
+    This can strengthen confidence that the mention is not a one-off
+    crawler artifact and deserves analyst review.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: DARKNET_MENTION_URL
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Darknet mention confirmed by multiple modules: {data}"

@@ -1,0 +1,27 @@
+id: phone_exposed_and_flagged_malicious
+version: 1
+meta:
+  name: Phone number exposed and flagged as malicious
+  description: >
+    A phone number was both reported in a breach and flagged as
+    malicious by a reputation source.
+
+    This may indicate SIM-swap targeting, scam usage, recycled numbers
+    with abusive history or phone numbers that should be handled with
+    extra caution during analysis.
+  risk: HIGH
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - PHONE_NUMBER_COMPROMISED
+          - MALICIOUS_PHONE_NUMBER
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: type
+    count_unique_only: true
+    minimum: 2
+headline: "Phone number exposed and flagged as malicious: {source.data}"

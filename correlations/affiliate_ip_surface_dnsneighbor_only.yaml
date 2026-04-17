@@ -1,0 +1,33 @@
+id: affiliate_ip_surface_dnsneighbor_only
+version: 1
+meta:
+  name: Adjacent IP surface seen only through DNS neighborhood
+  description: >
+    Adjacent IP addresses were found only by DNS neighborhood expansion
+    and were not corroborated by any other module.
+
+    These results can still be valuable for exploration, but they should
+    usually be treated as weak signals until another source confirms
+    them.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: AFFILIATE_IPADDR
+      - method: exact
+        field: module
+        value: sfp_dnsneighbor
+  - collect:
+      - method: exact
+        field: type
+        value: AFFILIATE_IPADDR
+      - method: exact
+        field: module
+        value: not sfp_dnsneighbor
+aggregation:
+  field: source.data
+analysis:
+  - method: first_collection_only
+    field: data
+headline: "Adjacent IP surface around {source.data} was discovered only through DNS neighborhood expansion"

@@ -2,6 +2,9 @@
 import pytest
 import unittest
 
+from mako.lookup import TemplateLookup
+from mako.template import Template
+
 from sfwebui import SpiderFootWebUi
 
 
@@ -288,6 +291,26 @@ class TestSpiderFootWebUi(unittest.TestCase):
         scan_info = sfwebui.scaninfo("example scan instance")
         self.assertIsInstance(scan_info, str)
 
+    def test_scaninfo_template_contains_safe_name_regex(self):
+        template = Template(
+            filename='spiderfoot/templates/scaninfo.tmpl',
+            lookup=TemplateLookup(directories=['.']),
+            input_encoding='utf-8'
+        )
+        rendered = template.render(
+            status='RUNNING',
+            name='Example Scan',
+            id='example-scan-id',
+            docroot='/',
+            version='test',
+            pageid='SCANLIST'
+        )
+        self.assertIn(
+            "/^[A-Za-z][A-Za-z'`.-]*(?:\\s+[A-Za-z][A-Za-z'`.-]*)+$/",
+            rendered
+        )
+        self.assertNotIn("A-Za-zÃ€-Ã¿", rendered)
+
     def test_opts(self):
         opts = self.default_options
         opts['__modules__'] = dict()
@@ -395,6 +418,21 @@ class TestSpiderFootWebUi(unittest.TestCase):
         sfwebui = SpiderFootWebUi(self.web_default_options, opts)
         correlationrules = sfwebui.correlationrules()
         self.assertIsInstance(correlationrules, list)
+
+    def test_action_risk_policy_should_classify_active_validation(self):
+        opts = self.default_options
+        opts['__modules__'] = dict()
+        sfwebui = SpiderFootWebUi(self.web_default_options, opts)
+        policy = sfwebui._action_risk_policy("finding_validate")
+        self.assertEqual(policy.get("category"), "validacao_ativa")
+        self.assertTrue(policy.get("requires_confirmation"))
+
+    def test_split_memory_items_should_return_clean_list(self):
+        opts = self.default_options
+        opts['__modules__'] = dict()
+        sfwebui = SpiderFootWebUi(self.web_default_options, opts)
+        items = sfwebui._split_memory_items("- item 1\n\n item 2 \n- item 3")
+        self.assertEqual(items, ["item 1", "item 2", "item 3"])
 
     def test_ping_should_return_list(self):
         """

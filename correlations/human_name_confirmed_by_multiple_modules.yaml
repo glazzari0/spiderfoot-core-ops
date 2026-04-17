@@ -1,0 +1,24 @@
+id: human_name_confirmed_by_multiple_modules
+version: 1
+meta:
+  name: Human name confirmed by multiple modules
+  description: >
+    A human name was discovered by more than one module.
+
+    Confirmation across multiple collection methods can reduce false
+    positives and increase confidence that the name is genuinely linked
+    to the target.
+  risk: INFO
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value: HUMAN_NAME
+aggregation:
+  field: data
+analysis:
+  - method: threshold
+    field: module
+    count_unique_only: true
+    minimum: 2
+headline: "Human name confirmed by multiple modules: {data}"

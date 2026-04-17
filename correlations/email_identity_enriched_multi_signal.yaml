@@ -1,0 +1,36 @@
+id: email_identity_enriched_multi_signal
+version: 1
+meta:
+  name: Email address enriched with multiple identity signals
+  description: >
+    An email address led to multiple different types of identity-related
+    findings such as a human name, phone number, social presence or
+    external accounts.
+
+    This can indicate that the email address is strongly attributable to
+    a real person or persona and is therefore a high-value lead for
+    further investigation.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - HUMAN_NAME
+          - PHONE_NUMBER
+          - SOCIAL_MEDIA
+          - ACCOUNT_EXTERNAL_OWNED
+          - USERNAME
+      - method: exact
+        field: source.type
+        value:
+          - EMAILADDR
+          - AFFILIATE_EMAILADDR
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: type
+    count_unique_only: true
+    minimum: 2
+headline: "Email address tied to multiple identity signals: {source.data}"

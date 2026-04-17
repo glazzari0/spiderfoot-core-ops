@@ -1,0 +1,37 @@
+id: leak_or_darknet_content_with_multiple_identity_types
+version: 1
+meta:
+  name: Leak or darknet content contains multiple identity types
+  description: >
+    A single leak site or darknet content item produced multiple
+    different identity-related findings such as email addresses,
+    usernames, phone numbers or human names.
+
+    This may indicate a richer exposure artifact worth prioritizing
+    because it contains enough linked identity data to support
+    attribution or follow-on investigation.
+  risk: HIGH
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - EMAILADDR
+          - EMAILADDR_GENERIC
+          - AFFILIATE_EMAILADDR
+          - USERNAME
+          - HUMAN_NAME
+          - PHONE_NUMBER
+      - method: exact
+        field: source.type
+        value:
+          - LEAKSITE_CONTENT
+          - DARKNET_MENTION_CONTENT
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: type
+    count_unique_only: true
+    minimum: 2
+headline: "Leak or darknet content with multiple identity types: {source.data}"

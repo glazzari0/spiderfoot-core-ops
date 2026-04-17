@@ -1,0 +1,35 @@
+id: identity_with_social_and_code_presence
+version: 1
+meta:
+  name: Identity with social and code presence
+  description: >
+    The same identity was linked to both social presence and public code
+    repositories or app store artifacts.
+
+    This combination often provides a stronger and richer attribution
+    trail than either signal alone.
+  risk: MEDIUM
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - SOCIAL_MEDIA
+          - PUBLIC_CODE_REPO
+          - APPSTORE_ENTRY
+      - method: exact
+        field: source.type
+        value:
+          - USERNAME
+          - EMAILADDR
+          - AFFILIATE_EMAILADDR
+          - HUMAN_NAME
+          - DOMAIN_NAME
+aggregation:
+  field: source.data
+analysis:
+  - method: threshold
+    field: type
+    count_unique_only: true
+    minimum: 2
+headline: "Identity with social and code presence: {source.data}"

@@ -1,0 +1,38 @@
+id: identity_with_breach_and_leak_mentions
+version: 1
+meta:
+  name: Identity with breach indicators and leak or darknet mentions
+  description: >
+    An identity already reported as compromised was also linked to leak
+    site or darknet artifacts.
+
+    This is a stronger exposure signal because it combines direct
+    compromise indicators with contextual leak evidence.
+  risk: HIGH
+collections:
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - EMAILADDR_COMPROMISED
+          - PHONE_NUMBER_COMPROMISED
+  - collect:
+      - method: exact
+        field: type
+        value:
+          - LEAKSITE_URL
+          - DARKNET_MENTION_URL
+      - method: exact
+        field: source.type
+        value:
+          - EMAILADDR
+          - PHONE_NUMBER
+aggregation:
+  field: source.data
+analysis:
+  - method: match_all_to_first_collection
+    match_method: exact
+headline:
+  text: "Compromised identity also linked to leak or darknet artifacts: {source.data}"
+  publish_collections:
+    - 1
